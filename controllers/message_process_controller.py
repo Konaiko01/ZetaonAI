@@ -15,7 +15,7 @@ class MessageProcessController:
 #--------------------------------------------------------------------------------------------------------------------#
 
 
-    def ProcessIncomingMessage(self, data: dict): ...
+    def control(self, data: dict): ...
         
     #fazer logica para que receba a mensagem e coloque ela na fila(queue)
     #usar media processor para coletar os dados e message queue para adicionar na fila
