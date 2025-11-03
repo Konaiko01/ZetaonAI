@@ -12,9 +12,9 @@ class ZAPICliet(IChat):
         self._Z_TOKEN = os.getenv("zToken")
         self._S_Z_TOKEN = os.getenv("segzToken")
 
-    def get_message(self, **kwargs) -> str:
+    def get_message(self, data) -> str:
         try:
-            return str(kwargs["text"]["message"])
+            return str(data["text"]["message"])
         except:
             logger.error('[ZAPIClient]Erro ao captar mensagem enviada')
 
@@ -25,23 +25,25 @@ class ZAPICliet(IChat):
             return None
         
     def send_message(self, phone: str, output: str) -> bool:
-        try:
-            logger.info("Tentando enviar via Z-API.")
-            url = f"{self._Z_URL}/instances/{self._Z_INSTANCIA}/token/{self._Z_TOKEN}/send-text/" 
-            headers = {
-                'Content-Type': 'application/json', 
-                'Client-Token': self._S_Z_TOKEN,
-            }  
-            payload = json.dumps({"phone": phone, "message": output})
-            response = requests.post(url, headers=headers, data=payload, timeout=10)
-            body_message = response.text 
-            response.raise_for_status() 
-            logger.info(f"Resposta enviada com sucesso pela Z-API para {phone}. Status: {response.status_code}")
-            logger.info(f"CORPO DA RESPOSTA Z-API: {body_message}")  
-            return True           
-        except requests.exceptions.RequestException as e:
-            logger.error(f'[ZAPIClient] Erro ao enviar mensagem')
-            return False             
-        except Exception as e:
-            logger.error(f"Erro inesperado na Z-API: {e}")
-            return False
+        
+        if (self.is_valid):
+            try:
+                logger.info("Tentando enviar via Z-API.")
+                url = f"{self._Z_URL}/instances/{self._Z_INSTANCIA}/token/{self._Z_TOKEN}/send-text/" 
+                headers = {
+                    'Content-Type': 'application/json', 
+                    'Client-Token': self._S_Z_TOKEN,
+                }  
+                payload = json.dumps({"phone": phone, "message": output})
+                response = requests.post(url, headers=headers, data=payload, timeout=10)
+                body_message = response.text 
+                response.raise_for_status() 
+                logger.info(f"Resposta enviada com sucesso pela Z-API para {phone}. Status: {response.status_code}")
+                logger.info(f"CORPO DA RESPOSTA Z-API: {body_message}")  
+                return True           
+            except requests.exceptions.RequestException as e:
+                logger.error(f'[ZAPIClient] Erro ao enviar mensagem')
+                return False             
+            except Exception as e:
+                logger.error(f"Erro inesperado na Z-API: {e}")
+                return False
