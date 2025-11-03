@@ -1,42 +1,19 @@
 import json
 import uvicorn
-import logging
-from config import ope
-import asyncio
-import sys
-from services import sys_prompts
-from services.agent_service import Agente
+from utils.logger import logger
 from fastapi import FastAPI, Request, HTTPException
-
-
-logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
-)
-logger = logging.getLogger(__name__)
-
-try:
-    agente_ronaldo = Agente(ope.get_key())
-except Exception as e:
-    logger.error(f"Erro ao inicializar Agente (OpenAI): {e}")
-    exit()
+import container
 
 app = FastAPI()
 
-app.post("v1/webhooks/change-in-business")
-async def mudanca_de_posicao(request: Request):
+app.post("/")
+def message_recieved(request: Request):
+    data = request.json()
     try:
-        data = await request.json()
+        return container.controllers.process_incoming_message_controller.handle(data)
     except json.JSONDecodeError:
         logger.warning("Corpo da requisição inválido (JSON esperado).")
         raise HTTPException(status_code=400, detail="Corpo da requisição inválido.") 
-    try:
-        await asyncio.to_thread(
-            self._connector.enviar_resposta,
-        )
-    except:
-        pass
 
 if __name__ == "__main__":
     logger.info("Iniciando o servidor Uvicorn...")

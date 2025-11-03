@@ -24,6 +24,51 @@ class MediaProcessor:
 #--------------------------------------------------------------------------------------------------------------------#
 
 
+    def message_verification(self, data) -> str | None:     
+        try:  
+            texto_simples = data.get('conversation') or \
+                data.get('extendedTextMessage', {}).get('text')
+            if texto_simples:
+                logger.info("Mensagem identificada como TEXTO.")
+                return texto_simples
+
+            elif data.get('audioMessage', {}):
+                info_audio = data.get('audioMessage', {})
+                logger.info("Mensagem identificada como ÁUDIO. Iniciando transcrição.")
+                chave_midia = info_audio.get('mediaKey')
+                mime_type = info_audio.get('mimetype')
+                url_audio = info_audio.get('url')
+                return self.transcricao_audio(url_audio, chave_midia, mime_type)
+
+            else:            
+                logger.info("Mensagem não é texto ou mídia suportada (áudio, imagem, pdf).")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Erro ao verificar e processar o tipo de mensagem: {e}", exc_info=True)
+            return None
+        
+
+#--------------------------------------------------------------------------------------------------------------------#
+    
+    
+    def message_processing(self, data)-> dict:
+
+        message_data = data.get('message', {})
+        input_text = MediaProcessor.message_verification(message_data)
+
+        if input_text is None:
+            logger.info("Mensagem ignorada: não é um texto simples ou formato de mídia suportado.")
+            return {"status": "ok", "message": "Não é uma mensagem de texto/mídia suportada."}
+
+        numero_completo = message_data.get('remoteJid', '')
+        numero = numero_completo.split('@')[0]
+
+        logger.info(f"Mensagem recebida. De: {numero}.")
+        return {'Mensagem': input_text, 'Numero': numero}
+
+
+#--------------------------------------------------------------------------------------------------------------------#
     def _baixar_midia(self, url_midia: str, extensao_arquivo: str) -> io.BytesIO | None:
         try:
             resposta = requests.get(url_midia, stream=True, timeout=15) 
@@ -132,30 +177,3 @@ class MediaProcessor:
 
 #--------------------------------------------------------------------------------------------------------------------#
 
-
-    def verificar_tipo_e_processar(self, mensagem: dict) -> Union[str, List[Dict[str, Any]], None]:     
-        try:  
-            texto_simples = mensagem.get('conversation') or \
-                mensagem.get('extendedTextMessage', {}).get('text')
-            if texto_simples:
-                logger.info("Mensagem identificada como TEXTO.")
-                return texto_simples
-
-            elif mensagem.get('audioMessage', {}):
-                info_audio = mensagem.get('audioMessage', {})
-                logger.info("Mensagem identificada como ÁUDIO. Iniciando transcrição.")
-                chave_midia = info_audio.get('mediaKey')
-                mime_type = info_audio.get('mimetype')
-                url_audio = info_audio.get('url')
-                return self.transcricao_audio(url_audio, chave_midia, mime_type)
-
-            else:            
-                logger.info("Mensagem não é texto ou mídia suportada (áudio, imagem, pdf).")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Erro ao verificar e processar o tipo de mensagem: {e}", exc_info=True)
-            return None
-        
-
-#--------------------------------------------------------------------------------------------------------------------#
