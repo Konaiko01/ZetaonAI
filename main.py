@@ -8,8 +8,8 @@ app = FastAPI()
 
 app.post("/")
 def message_recieved(request: Request):
-    data = request.json()
     try:
+        data = request.json()
         return container.controllers.process_incoming_message_controller.handle(data)
     except json.JSONDecodeError:
         logger.warning("Corpo da requisição inválido (JSON esperado).")
