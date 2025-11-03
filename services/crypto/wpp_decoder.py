@@ -3,11 +3,11 @@ import hashlib
 import hmac
 import base64
 import logging
-from Crypto.Cipher import AES
+from Crypto.Cipher import AES # type: ignore
 from typing import Optional, Dict, Union
 logger = logging.getLogger(__name__)
 
-
+#veficar necessidade de manter a classe inteira para descriptografia
 #--------------------------------------------------------------------------------------------------------------------#
 class Decoder:
 #--------------------------------------------------------------------------------------------------------------------#
