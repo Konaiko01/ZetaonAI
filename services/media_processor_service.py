@@ -1,8 +1,3 @@
-import io
-import os   
-import whisper
-import requests
-import tempfile 
 from openai import OpenAI
 from ..utils import logger
 from typing import List, Dict, Union, Any
@@ -17,8 +12,6 @@ class MediaProcessorService:
     def __init__(self, key: str, temp_media_dir: str):
         self.client =  OpenAI(api_key=key) 
         self.decodificador = Decoder()
-        self.modelo_whisper_local = whisper.load_model("base") 
-        self.TEMP_MEDIA_DIR = temp_media_dir
 
 
 #--------------------------------------------------------------------------------------------------------------------#
