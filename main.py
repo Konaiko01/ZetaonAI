@@ -12,8 +12,10 @@ def message_recieved(request: Request):
         data = request.json()
         return container.controllers.process_incoming_message_controller.handle(data)
     except json.JSONDecodeError:
-        logger.warning("Corpo da requisição inválido (JSON esperado).")
+        logger.warning("[Message_recieved(main)] Corpo da requisição inválido (JSON esperado).")
         raise HTTPException(status_code=400, detail="Corpo da requisição inválido.") 
+    except Exception as e:
+        logger.error(f"[Message_recieved(main)] Erro ao fazer processamento da mensagem {e}")
 
 if __name__ == "__main__":
     logger.info("Iniciando o servidor Uvicorn...")
