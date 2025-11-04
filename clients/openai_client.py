@@ -1,0 +1,3 @@
+from interfaces.clients.ia_interface import IAI
+
+class OpenIAClient(IAI): ...

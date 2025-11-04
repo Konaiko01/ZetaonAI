@@ -7,9 +7,11 @@ class MessageProcessController:
 #--------------------------------------------------------------------------------------------------------------------#
 
 
-    def __init__(self):
-        processor = MediaProcessorService()
-        queue = MessageQueueService()
+    def __init__(self, 
+                 message_service: MessageQueueService,
+                 media_service:MediaProcessorService):
+        processor = media_service
+        queue = message_service
 
 
 #--------------------------------------------------------------------------------------------------------------------#
