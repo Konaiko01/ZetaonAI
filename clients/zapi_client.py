@@ -1,5 +1,5 @@
-from ..utils.logger import logger
-from ..interfaces.chat_interface import IChat
+from utils.logger import logger
+from interfaces.clients.chat_interface import IChat
 import requests
 import json
 import os

@@ -1,4 +1,4 @@
-from openai import OpenAI
+from ..clients.openai_client import OpenIAClient
 from ..utils import logger
 from typing import List, Dict, Union, Any
 from services.crypto.wpp_decoder import Decoder
@@ -9,8 +9,8 @@ class MediaProcessorService:
 #--------------------------------------------------------------------------------------------------------------------#
 
 
-    def __init__(self, key: str, temp_media_dir: str):
-        self.client =  OpenAI(api_key=key) 
+    def __init__(self):
+        self.client =  OpenIAClient() 
         self.decodificador = Decoder()
 
 
