@@ -1,6 +1,6 @@
 from abc import ABC,abstractmethod
 
-class IQueue:
+class IQueue(ABC):
 
     @abstractmethod
     def create_queue(self): ...

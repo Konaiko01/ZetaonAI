@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 
 
-class IChat:
+class IChat(ABC):
 
     @abstractmethod
     def get_chat_id()-> str: ...
