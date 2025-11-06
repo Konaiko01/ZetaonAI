@@ -38,7 +38,7 @@ class RedisQueue:
     def add_message(
         self,
         key: str,
-        message_data: Dict[str, Any],
+        payload_data: Dict[str, Any],
         expire: int = 60 * 60 * 24,  # Significa o 1 dia em segundos
     ) -> None:
         """Adiciona mensagem à fila do Redis com verificação de saúde"""
@@ -47,44 +47,77 @@ class RedisQueue:
 
         self.expire = expire
         try:
-            message_json = json.dumps(message_data, ensure_ascii=False)
-
+            message_json = json.dumps(payload_data, ensure_ascii=False)
             self.redis.rpush(key, message_json)
 
             # Define expiração para a fila de mensagens
             self.redis.expire(key, self.expire)
 
-            logger.info(f"Mensagem adicionada à fila para {id}, chave: {key}")
-            logger.debug(f"Conteúdo da mensagem: {message_data}")
+            logger.info(f"Mensagem adicionada à fila para chave: {key}")
+            logger.debug(f"Conteúdo da mensagem: {payload_data}")
         except Exception as e:
             logger.error(
                 f"Erro ao adicionar mensagem ao Redis: {str(e)}", exc_info=True
             )
             raise e
 
-    def get_pending_messages(self, key: str) -> List[Dict[str, Any]]:
+    def add_message_unit(
+        self,
+        id: str,
+        payload_data: Dict[str, Any],
+        expire: int = 60 * 60 * 24,  # Significa o 1 dia em segundos
+    ) -> bool:
+        if not self.is_healthy:
+            raise ConnectionError("Redis não está disponível")
+
+        self.expire = expire
+        try:
+            if self.redis.exists(id) == 1:
+                logger.info(f"Mensagem já existe para {id}")
+                return False
+            self.redis.hset(id, mapping=payload_data)  # type: ignore
+
+            # Define expiração para a fila de mensagens
+            self.redis.expire(id, self.expire)
+
+            logger.info(f"Mensagem do tipo unica foi adicionada à fila para {id}")
+            logger.debug(f"Conteúdo da mensagem: {payload_data}")
+            return True
+        except Exception as e:
+            logger.error(
+                f"Erro ao adicionar mensagem do tipo unica ao Redis: {str(e)}",
+                exc_info=True,
+            )
+            raise e
+
+    def get_pending_messages(
+        self, key: str, key_delete: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Recupera todas as mensagens pendentes e limpa a fila com verificação de saúde"""
         if not self.is_healthy:
             raise ConnectionError("Redis não está disponível")
+
+        if key_delete is None:
+            key_delete = key
 
         try:
             logger.info(f"Buscando mensagens com chave: {key}")
 
             # Verifica se a chave existe
             if not self.redis.exists(key):
-                logger.info(f"Chave {key} não encontrada no Redis")
+                logger.debug(f"Chave {key} não encontrada no Redis")
                 return []
 
-            redis_messages: list[bytes] = self.redis.lrange(key, 0, -1)  # type: ignore
+            redis_messages: List[bytes] = self.redis.lrange(key, 0, -1)  # type: ignore
             logger.info(f"Encontradas {len(redis_messages)} mensagens no Redis")
 
-            self.redis.delete(key)
+            self.redis.delete(key_delete)
 
-            result: list[dict[str, Any]] = []
+            result: List[Dict[str, Any]] = []
             for msg_bytes in redis_messages:
                 try:
                     msg_str = msg_bytes.decode("utf-8")
-                    message_dict: dict[str, Any] = json.loads(msg_str)
+                    message_dict: Dict[str, Any] = json.loads(msg_str)
                     result.append(message_dict)
                     logger.debug(f"Mensagem decodificada: {message_dict}")
                 except (json.JSONDecodeError, UnicodeDecodeError) as e:
@@ -96,9 +129,3 @@ class RedisQueue:
                 f"Erro ao recuperar mensagens do Redis: {str(e)}", exc_info=True
             )
             raise e
-
-    def _group_messages_by_key(
-        self, key: str, message: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-
-        return []
