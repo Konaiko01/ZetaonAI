@@ -4,6 +4,7 @@ import json
 from typing import Any, Optional, Dict, List
 import os
 from dotenv import load_dotenv
+from utils.helpers import validator_health
 
 load_dotenv()
 
@@ -22,6 +23,9 @@ class RedisQueue:
         self.expire: Optional[int] = None
         self.check_health()
 
+    # Nota: o decorator `validator_health` é definido no nível do módulo
+    # (fora da classe) e usado aqui como `@validator_health` nos métodos.
+
     def check_health(self) -> bool:
         """Verifica se o Redis está respondendo"""
         try:
@@ -35,16 +39,15 @@ class RedisQueue:
         finally:
             return self.is_healthy
 
+    @validator_health
     def add_message(
         self,
-        key: str,
+        id: str,
         payload_data: Dict[str, Any],
         expire: int = 60 * 60 * 24,  # Significa o 1 dia em segundos
     ) -> None:
         """Adiciona mensagem à fila do Redis com verificação de saúde"""
-        if not self.is_healthy:
-            raise ConnectionError("Redis não está disponível")
-
+        key = f"whatsapp:{id}"
         self.expire = expire
         try:
             message_json = json.dumps(payload_data, ensure_ascii=False)
@@ -91,12 +94,13 @@ class RedisQueue:
             raise e
 
     def get_pending_messages(
-        self, key: str, key_delete: Optional[str] = None
+        self, id: str, key_delete: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Recupera todas as mensagens pendentes e limpa a fila com verificação de saúde"""
         if not self.is_healthy:
             raise ConnectionError("Redis não está disponível")
 
+        key = f"whatsapp:{id}"
         if key_delete is None:
             key_delete = key
 
@@ -127,5 +131,58 @@ class RedisQueue:
         except Exception as e:
             logger.error(
                 f"Erro ao recuperar mensagens do Redis: {str(e)}", exc_info=True
+            )
+            raise e
+
+    # Wrappers para uso externo (evitam o acesso direto a `self.redis`)
+    def keys(self, pattern: str) -> List[bytes]:
+        try:
+            return self.redis.keys(pattern)  # type: ignore[return-value]
+        except Exception as e:
+            logger.error(f"Erro ao listar chaves no Redis: {e}", exc_info=True)
+            raise e
+
+    def get(self, key: bytes | str) -> Optional[bytes]:
+        try:
+            return self.redis.get(key)  # type: ignore[return-value]
+        except Exception as e:
+            logger.error(f"Erro ao obter chave {key} do Redis: {e}", exc_info=True)
+            raise e
+
+    def delete(self, key: bytes | str) -> int:
+        try:
+            return self.redis.delete(key)  # type: ignore[return-value]
+        except Exception as e:
+            logger.error(f"Erro ao deletar chave {key} do Redis: {e}", exc_info=True)
+            raise e
+
+    def set(self, key: str, value: str, nx: bool = False) -> bool:
+        try:
+            # redis-py retorna True/False para set quando decode_responses=False
+            return self.redis.set(key, value, nx=nx)  # type: ignore[return-value]
+        except Exception as e:
+            logger.error(f"Erro ao setar chave {key} no Redis: {e}", exc_info=True)
+            raise e
+
+    def expireat(self, key: str, when: int) -> bool:
+        try:
+            return self.redis.expireat(key, when)  # type: ignore[return-value]
+        except Exception as e:
+            logger.error(f"Erro ao setar expireat para {key}: {e}", exc_info=True)
+            raise e
+
+    def llen(self, key: str) -> int:
+        try:
+            return self.redis.llen(key)  # type: ignore[return-value]
+        except Exception as e:
+            logger.error(f"Erro ao obter tamanho da lista {key}: {e}", exc_info=True)
+            raise e
+
+    def exists(self, key: str) -> int:
+        try:
+            return self.redis.exists(key)  # type: ignore[return-value]
+        except Exception as e:
+            logger.error(
+                f"Erro ao checar existência da chave {key}: {e}", exc_info=True
             )
             raise e

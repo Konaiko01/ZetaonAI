@@ -50,7 +50,7 @@ def test_mongo_save_and_get_history(setup_clients: Tuple[MongoDB, RedisQueue]):
 
 def test_redis_message_operations(setup_clients: Tuple[MongoDB, RedisQueue]):
     _, redis = setup_clients
-    key = "test_key"
+    id = "test_key"
     message = {
         "type": "test",
         "content": "Mensagem de teste",
@@ -58,21 +58,21 @@ def test_redis_message_operations(setup_clients: Tuple[MongoDB, RedisQueue]):
 
     try:
         # Testa adição
-        redis.add_message(key=key, payload_data=message)
+        redis.add_message(id=id, payload_data=message)
 
         # Recupera mensagens
-        messages = redis.get_pending_messages(key=key)
+        messages = redis.get_pending_messages(id=id)
 
         assert len(messages) == 1, "Deveria ter exatamente uma mensagem"
         assert messages[0]["type"] == "test"
         assert messages[0]["content"] == "Mensagem de teste"
 
         # Verifica se fila foi limpa
-        empty_messages = redis.get_pending_messages(key=key)
+        empty_messages = redis.get_pending_messages(id=id)
         assert (
             len(empty_messages) == 0
         ), "Fila deveria estar vazia após get_pending_messages"
 
     finally:
         # Garante limpeza
-        redis.redis.delete(key)
+        redis.delete(f"whatsapp:{id}")
