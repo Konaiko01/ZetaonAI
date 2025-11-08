@@ -58,7 +58,7 @@ def test_redis_message_operations(setup_clients: Tuple[MongoDB, RedisQueue]):
 
     try:
         # Testa adição
-        redis.add_message(id=id, payload_data=message)
+        redis.add_message(key=f"whatsapp:{id}", payload_data=message)
 
         # Recupera mensagens
         messages = redis.get_pending_messages(id=id)

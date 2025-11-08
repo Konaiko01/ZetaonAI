@@ -42,12 +42,11 @@ class RedisQueue:
     @validator_health
     def add_message(
         self,
-        id: str,
+        key: str,
         payload_data: Dict[str, Any],
         expire: int = 60 * 60 * 24,  # Significa o 1 dia em segundos
     ) -> None:
         """Adiciona mensagem à fila do Redis com verificação de saúde"""
-        key = f"whatsapp:{id}"
         self.expire = expire
         try:
             message_json = json.dumps(payload_data, ensure_ascii=False)
@@ -64,6 +63,7 @@ class RedisQueue:
             )
             raise e
 
+    @validator_health
     def add_message_unit(
         self,
         id: str,
@@ -93,16 +93,13 @@ class RedisQueue:
             )
             raise e
 
-    def get_pending_messages(
-        self, id: str, key_delete: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    @validator_health
+    def get_pending_messages(self, id: str) -> List[Dict[str, Any]]:
         """Recupera todas as mensagens pendentes e limpa a fila com verificação de saúde"""
         if not self.is_healthy:
             raise ConnectionError("Redis não está disponível")
 
         key = f"whatsapp:{id}"
-        if key_delete is None:
-            key_delete = key
 
         try:
             logger.info(f"Buscando mensagens com chave: {key}")
@@ -115,7 +112,7 @@ class RedisQueue:
             redis_messages: List[bytes] = self.redis.lrange(key, 0, -1)  # type: ignore
             logger.info(f"Encontradas {len(redis_messages)} mensagens no Redis")
 
-            self.redis.delete(key_delete)
+            self.redis.delete(key)
 
             result: List[Dict[str, Any]] = []
             for msg_bytes in redis_messages:
@@ -134,7 +131,28 @@ class RedisQueue:
             )
             raise e
 
-    # Wrappers para uso externo (evitam o acesso direto a `self.redis`)
+    async def get_messages_batches(self) -> List[str]:
+        import time
+
+        batch_keys: List[bytes] = (self.keys("batch_processing:*"),)  # type: ignore
+        phones_numbers: List[str] = []
+
+        if batch_keys:
+            logger.debug(f"Monitor: encontradas {len(batch_keys)} chaves de batch")
+
+        for key in batch_keys:
+            try:
+                # Verifica se o lote expirou
+                expiry_str: Any = self.get(key)
+
+                if expiry_str and float(expiry_str) <= time.time():
+                    phones_numbers.append(key.decode().split(":")[1])
+            except Exception as e:
+                logger.error(f"Erro ao processar batch key {key}: {e}")
+                continue
+
+        return phones_numbers
+
     def keys(self, pattern: str) -> List[bytes]:
         try:
             return self.redis.keys(pattern)  # type: ignore[return-value]

@@ -5,7 +5,7 @@ from functools import wraps
 def validator_health(func: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator de módulo que verifica `self.is_healthy` antes de executar o método.
 
-    Use dentro da classe `RedisQueue` como:
+    Como usar:
 
         @validator_health
         def metodo(self, ...):
