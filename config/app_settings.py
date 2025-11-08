@@ -19,6 +19,9 @@ class AppSettings(BaseSettings):
     # Configuração do Redis
     redis_url: str = "redis://localhost:6379"
 
+    # Tempo para processar lote
+    batch_processing_delay: int = 3
+
     # Números autorizados a usar o bot
     authorized_numbers: Union[List[str], str] = []
 
