@@ -1,10 +1,10 @@
 from redis import Redis
 import logging
 import json
-from typing import Any, Optional, Dict, List
-import os
+from typing import Any, Dict, List
 from dotenv import load_dotenv
-from utils.helpers import validator_health
+from utils.validators import validator_health
+from config import settings
 
 load_dotenv()
 
@@ -13,24 +13,21 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 class RedisQueue:
     def __init__(self):
-        self.redis: Redis = Redis.from_url(  # type: ignore[arg-type]
-            url=os.getenv("REDIS_URL", ""),
+        self._redis: Redis = Redis.from_url(  # type: ignore[arg-type]
+            url=settings.redis_url,
             socket_connect_timeout=5,  # 5 segundos timeout
             socket_timeout=5,
             retry_on_timeout=True,
             max_connections=10,
         )
-        self.expire: Optional[int] = None
+        self.batch_timeout = settings.batch_processing_delay
         self.check_health()
-
-    # Nota: o decorator `validator_health` é definido no nível do módulo
-    # (fora da classe) e usado aqui como `@validator_health` nos métodos.
 
     def check_health(self) -> bool:
         """Verifica se o Redis está respondendo"""
         try:
             # Testa a conexão
-            self.redis.ping()  # type: ignore
+            self._redis.ping()  # type: ignore
             self.is_healthy = True
             logger.info("Conexão com Redis estabelecida com sucesso")
         except (ConnectionError, TimeoutError, Exception) as e:
@@ -40,20 +37,22 @@ class RedisQueue:
             return self.is_healthy
 
     @validator_health
-    def add_message(
+    async def add_message(
         self,
         key: str,
         payload_data: Dict[str, Any],
         expire: int = 60 * 60 * 24,  # Significa o 1 dia em segundos
     ) -> None:
         """Adiciona mensagem à fila do Redis com verificação de saúde"""
-        self.expire = expire
         try:
             message_json = json.dumps(payload_data, ensure_ascii=False)
-            self.redis.rpush(key, message_json)
+            self._redis.rpush(key, message_json)
 
             # Define expiração para a fila de mensagens
-            self.redis.expire(key, self.expire)
+            self._redis.expire(key, expire)
+
+            # Agenda o processamento desta chave
+            await self._save_batch_processing(key)
 
             logger.info(f"Mensagem adicionada à fila para chave: {key}")
             logger.debug(f"Conteúdo da mensagem: {payload_data}")
@@ -63,35 +62,28 @@ class RedisQueue:
             )
             raise e
 
-    @validator_health
-    def add_message_unit(
+    async def _save_batch_processing(
         self,
         id: str,
-        payload_data: Dict[str, Any],
-        expire: int = 60 * 60 * 24,  # Significa o 1 dia em segundos
-    ) -> bool:
-        if not self.is_healthy:
-            raise ConnectionError("Redis não está disponível")
+    ):
+        """Agenda o processamento do batch para este id"""
+        import time
 
-        self.expire = expire
         try:
-            if self.redis.exists(id) == 1:
-                logger.info(f"Mensagem já existe para {id}")
-                return False
-            self.redis.hset(id, mapping=payload_data)  # type: ignore
+            # Define um timestamp de expiração no Redis
+            processing_key = f"batch_processing:{id}"
+            expiry_time = time.time() + self.batch_timeout
 
-            # Define expiração para a fila de mensagens
-            self.redis.expire(id, self.expire)
+            logger.info(f"AGENDANDO: {id} -> expira em {self.batch_timeout}")
 
-            logger.info(f"Mensagem do tipo unica foi adicionada à fila para {id}")
-            logger.debug(f"Conteúdo da mensagem: {payload_data}")
-            return True
+            self._redis.set(processing_key, str(expiry_time))
+
+            self._redis.expireat(processing_key, int(expiry_time + 60))
+
+            logger.info(f"Lote agendado para {id} em {self.batch_timeout}s")
+
         except Exception as e:
-            logger.error(
-                f"Erro ao adicionar mensagem do tipo unica ao Redis: {str(e)}",
-                exc_info=True,
-            )
-            raise e
+            logger.error(f"Erro ao agendar batch para {id}: {e}")
 
     @validator_health
     def get_pending_messages(self, id: str) -> List[Dict[str, Any]]:
@@ -105,14 +97,14 @@ class RedisQueue:
             logger.info(f"Buscando mensagens com chave: {key}")
 
             # Verifica se a chave existe
-            if not self.redis.exists(key):
+            if not self._redis.exists(key):
                 logger.debug(f"Chave {key} não encontrada no Redis")
                 return []
 
-            redis_messages: List[bytes] = self.redis.lrange(key, 0, -1)  # type: ignore
+            redis_messages: List[bytes] = self._redis.lrange(key, 0, -1)  # type: ignore
             logger.info(f"Encontradas {len(redis_messages)} mensagens no Redis")
 
-            self.redis.delete(key)
+            self._redis.delete(key)
 
             result: List[Dict[str, Any]] = []
             for msg_bytes in redis_messages:
@@ -131,10 +123,11 @@ class RedisQueue:
             )
             raise e
 
+    @validator_health
     async def get_messages_batches(self) -> List[str]:
         import time
 
-        batch_keys: List[bytes] = (self.keys("batch_processing:*"),)  # type: ignore
+        batch_keys: List[bytes] = (self._redis.keys("batch_processing:*"),)  # type: ignore
         phones_numbers: List[str] = []
 
         if batch_keys:
@@ -143,7 +136,7 @@ class RedisQueue:
         for key in batch_keys:
             try:
                 # Verifica se o lote expirou
-                expiry_str: Any = self.get(key)
+                expiry_str: Any = self._redis.get(key)
 
                 if expiry_str and float(expiry_str) <= time.time():
                     phones_numbers.append(key.decode().split(":")[1])
@@ -153,54 +146,9 @@ class RedisQueue:
 
         return phones_numbers
 
-    def keys(self, pattern: str) -> List[bytes]:
-        try:
-            return self.redis.keys(pattern)  # type: ignore[return-value]
-        except Exception as e:
-            logger.error(f"Erro ao listar chaves no Redis: {e}", exc_info=True)
-            raise e
-
-    def get(self, key: bytes | str) -> Optional[bytes]:
-        try:
-            return self.redis.get(key)  # type: ignore[return-value]
-        except Exception as e:
-            logger.error(f"Erro ao obter chave {key} do Redis: {e}", exc_info=True)
-            raise e
-
     def delete(self, key: bytes | str) -> int:
         try:
-            return self.redis.delete(key)  # type: ignore[return-value]
+            return self._redis.delete(key)  # type: ignore[return-value]
         except Exception as e:
             logger.error(f"Erro ao deletar chave {key} do Redis: {e}", exc_info=True)
-            raise e
-
-    def set(self, key: str, value: str, nx: bool = False) -> bool:
-        try:
-            # redis-py retorna True/False para set quando decode_responses=False
-            return self.redis.set(key, value, nx=nx)  # type: ignore[return-value]
-        except Exception as e:
-            logger.error(f"Erro ao setar chave {key} no Redis: {e}", exc_info=True)
-            raise e
-
-    def expireat(self, key: str, when: int) -> bool:
-        try:
-            return self.redis.expireat(key, when)  # type: ignore[return-value]
-        except Exception as e:
-            logger.error(f"Erro ao setar expireat para {key}: {e}", exc_info=True)
-            raise e
-
-    def llen(self, key: str) -> int:
-        try:
-            return self.redis.llen(key)  # type: ignore[return-value]
-        except Exception as e:
-            logger.error(f"Erro ao obter tamanho da lista {key}: {e}", exc_info=True)
-            raise e
-
-    def exists(self, key: str) -> int:
-        try:
-            return self.redis.exists(key)  # type: ignore[return-value]
-        except Exception as e:
-            logger.error(
-                f"Erro ao checar existência da chave {key}: {e}", exc_info=True
-            )
             raise e

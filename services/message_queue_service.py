@@ -1,9 +1,6 @@
 import asyncio
 import logging
-import time
 from typing import Dict, Any
-
-from config import settings
 from infrastructure import client_redis
 
 logger = logging.getLogger(__name__)
@@ -12,7 +9,6 @@ logger = logging.getLogger(__name__)
 class MessageQueueService:
     def __init__(self):
         self.processing_tasks: Dict[str, asyncio.Task[Any]] = {}
-        self.batch_timeout = settings.batch_processing_delay
         # self.message_processor = MessageProcessor()
         self._shutting_down = False
         self._batch_monitor_task: asyncio.Task[Any] | None = None
@@ -30,43 +26,8 @@ class MessageQueueService:
             # Adiciona a mensagem ao Redis (método existente)
             client_redis.add_message(phone_number, message_data)
 
-            # Agenda o processamento deste telefone
-            await self._schedule_batch_processing(phone_number)
-
-            logger.info(f"Mensagem adicionada e agendada para {phone_number}")
-
         except Exception as e:
-            logger.error(f"Erro ao adicionar mensagem para {phone_number}: {e}")
-            raise
-
-    async def _schedule_batch_processing(self, phone_number: str):
-        """Agenda o processamento do batch para este telefone"""
-        try:
-            # Define um timestamp de expiração no Redis
-            processing_key = f"batch_processing:{phone_number}"
-            expiry_time = time.time() + self.batch_timeout
-
-            logger.info(f"AGENDANDO: {phone_number} -> expira em {self.batch_timeout}")
-
-            # Usa SET com NX para evitar agendamentos duplicados
-            scheduled = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: client_redis.set(processing_key, str(expiry_time))
-            )
-
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: client_redis.expireat(processing_key, int(time.time() + 60)),
-            )
-
-            if scheduled:
-                logger.info(
-                    f"Batch agendado para {phone_number} em {self.batch_timeout}s"
-                )
-            else:
-                logger.info(f"Expiração do batch atualizado para {phone_number}")
-
-        except Exception as e:
-            logger.error(f"Erro ao agendar batch para {phone_number}: {e}")
+            raise e
 
     async def _monitor_batches(self):
         """Monitora continuamente os lotes prontos para processamento"""
