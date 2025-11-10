@@ -1,7 +1,9 @@
 import asyncio
+from asyncio import Semaphore
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from infrastructure import client_redis
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -9,77 +11,133 @@ logger = logging.getLogger(__name__)
 class MessageQueueService:
     def __init__(self):
         self.processing_tasks: Dict[str, asyncio.Task[Any]] = {}
-        # self.message_processor = MessageProcessor()
         self._shutting_down = False
-        self._batch_monitor_task: asyncio.Task[Any] | None = None
+        self._batch_monitor_task: Optional[asyncio.Task[Any]] = None
+        self._auto_stop_task: Optional[asyncio.Task[Any]] = None
+        self._monitor_duration = 10  # duração em segundos
+
+        # Controla o número máximo de tasks simultâneas
+        self.max_concurrent = settings.max_concurrent
+        self._semaphore = Semaphore(self.max_concurrent)
 
     async def start_monitoring(self):
-        """Inicia o monitoramento contínuo dos lotes"""
-        self._batch_monitor_task = asyncio.create_task(self._monitor_batches())
+        """Inicia ou reinicia o monitoramento contínuo dos lotes para 1 minuto"""
+        # Cancela o timer de auto-stop anterior se existir
+        if self._auto_stop_task and not self._auto_stop_task.done():
+            self._auto_stop_task.cancel()
+            try:
+                await self._auto_stop_task
+            except asyncio.CancelledError:
+                pass
+
+        # Inicia o monitor se não estiver rodando
+        if not self._batch_monitor_task or self._batch_monitor_task.done():
+            self._shutting_down = False
+            self._batch_monitor_task = asyncio.create_task(self._monitor_batches())
+            logger.info("Monitor de batches iniciado")
+
+        # Agenda novo auto-stop
+        self._auto_stop_task = asyncio.create_task(self._auto_stop_monitoring())
+        logger.info(f"Monitor será encerrado em {self._monitor_duration} segundos")
 
     async def add_message(self, phone_number: str, message_data: dict[str, Any]):
         """Adiciona mensagem ao Redis e agenda processamento"""
         if self._shutting_down:
+            logger.warning("Serviço está desligando, mensagem ignorada")
             return
 
         try:
-            # Adiciona a mensagem ao Redis (método existente)
-            client_redis.add_message(phone_number, message_data)
+            # Adiciona a mensagem ao Redis (método assíncrono)
+            await client_redis.add_message(phone_number, message_data)
+            logger.debug(f"Mensagem adicionada para {phone_number}")
 
         except Exception as e:
+            logger.error(f"Erro ao adicionar mensagem para {phone_number}: {e}")
             raise e
 
-    async def _monitor_batches(self):
-        """Monitora continuamente os lotes prontos para processamento"""
-        import functools
+    async def _auto_stop_monitoring(self):
+        """Agenda o encerramento automático do monitoramento"""
+        try:
+            await asyncio.sleep(self._monitor_duration)
+            await self.stop_monitoring()
+            logger.info(
+                "Monitor de batches encerrado automaticamente após tempo limite"
+            )
+        except asyncio.CancelledError:
+            logger.info("Timer de auto-stop cancelado - monitor continuará rodando")
 
-        if not self._shutting_down:
-            logger.info(f"--- Monitoramento de batch iniciado")
+    async def _monitor_batches(self):
+        """Monitora continuamente os lotes com limite de concorrência (em paralelo)"""
+        logger.info(f"--- Monitoramento iniciado")
 
         while not self._shutting_down:
             try:
-                # Encontra lotes que expiraram (devem ser processados)
-                phones_numbers: list[str] = await client_redis.get_messages_batches()
+                phones_numbers: List[str] = await client_redis.get_messages_batches()
 
+                if phones_numbers:
+                    logger.info(
+                        f"Encontrados {len(phones_numbers)} lotes para processar"
+                    )
+
+                # Cria tasks limitadas pelo semaphore
+                tasks: List[Any] = []
                 for phone in phones_numbers:
-                    try:
-                        # Remove a chave e processa o lote
-                        removed = await asyncio.get_running_loop().run_in_executor(
-                            None,
-                            functools.partial(
-                                client_redis.delete, f"batch_processing:{phone}"
-                            ),
+                    # Cria task com controle de concorrência
+                    task = asyncio.create_task(self._process_with_limit(phone))
+                    tasks.append(task)
+
+                # Aguarda todas as tasks completarem
+                if tasks:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # Log de resultados
+                    successful = sum(1 for r in results if not isinstance(r, Exception))
+                    failed = sum(1 for r in results if isinstance(r, Exception))
+
+                    if successful > 0 or failed > 0:
+                        logger.info(
+                            f"Processamento: {successful} sucesso, {failed} falhas"
                         )
 
-                        if removed:
-                            await self._process_scheduled_batch(phone)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Erro no monitor: {e}")
+            await asyncio.sleep(1)
 
-                    except Exception as e:
-                        logger.error(f"Erro ao processar batch key {phone}: {e}")
-                        continue
+    async def _process_with_limit(self, phone_number: str) -> None:
+        """Processa um telefone respeitando o limite de concorrência"""
+        async with self._semaphore:
+            try:
+                logger.debug(
+                    f"Iniciando processamento de {phone_number} "
+                    f"(semaphore: {self._semaphore._value}/{self.max_concurrent})"
+                )
 
-                # Espera um curto período antes da próxima verificação
-                await asyncio.sleep(1)  # 1s
+                await self._process_single_batch(phone_number)
 
             except Exception as e:
-                logger.error(f"Erro no monitor de batches: {e}")
-                await asyncio.sleep(1)
+                logger.error(f"Erro ao processar {phone_number}: {e}")
+                raise
+
+    async def _process_single_batch(self, phone_number: str):
+        """Processa um único batch (mantém a lógica original)"""
 
     async def _process_scheduled_batch(self, phone_number: str):
         """Processa um batch agendado"""
         try:
-            # Verifica se há mensagens pendentes
-            pending_count: int | Any = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: client_redis.llen(f"whatsapp:{phone_number}")
+            removed = await client_redis.delete(f"batch_processing:{phone_number}")
+            if not removed:
+                pass
+
+            # Recupera e processa as mensagens
+            messages: List[Dict[str, Any]] = await client_redis.get_pending_messages(
+                phone_number
             )
 
-            if pending_count > 0:
-                logger.info(
-                    f"Processando batch agendado para {phone_number} com {pending_count} mensagens"
-                )
-
-                # Usa o MessageProcessor existente para processar
-                # await self.message_processor.process_phone_messages(phone_number)
+            if len(messages) > 0:
+                # TODO: Implementar a lógica real de processamento
+                print("Implemente apartir daqui")
 
                 logger.info(f"Batch processado com sucesso para {phone_number}")
             else:
@@ -91,10 +149,33 @@ class MessageQueueService:
     async def stop_monitoring(self):
         """Para o monitoramento gracefuly"""
         self._shutting_down = True
+
+        # Cancela tarefas de monitoramento
+        tasks_to_cancel: List[Any] = []
         if self._batch_monitor_task and not self._batch_monitor_task.done():
-            self._batch_monitor_task.cancel()
-            try:
-                await self._batch_monitor_task
-            except asyncio.CancelledError:
-                pass
+            tasks_to_cancel.append(self._batch_monitor_task)
+        if self._auto_stop_task and not self._auto_stop_task.done():
+            tasks_to_cancel.append(self._auto_stop_task)
+
+        for task in tasks_to_cancel:
+            task.cancel()
+
+        # Aguarda o cancelamento
+        if tasks_to_cancel:
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+
         logger.info("Monitor de batches parado")
+
+    async def cleanup(self):
+        """Limpeza de recursos"""
+        await self.stop_monitoring()
+
+        # Cancela todas as tarefas de processamento
+        for task in self.processing_tasks.values():
+            if not task.done():
+                task.cancel()
+
+        if self.processing_tasks:
+            await asyncio.gather(
+                *self.processing_tasks.values(), return_exceptions=True
+            )

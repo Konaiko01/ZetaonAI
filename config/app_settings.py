@@ -22,6 +22,9 @@ class AppSettings(BaseSettings):
     # Tempo para processar lote
     batch_processing_delay: int = 3
 
+    # Número máximo de tarefas simultâneas
+    max_concurrent: int = 5
+
     # Números autorizados a usar o bot
     authorized_numbers: Union[List[str], str] = []
 
