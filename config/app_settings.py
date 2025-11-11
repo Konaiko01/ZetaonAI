@@ -27,4 +27,9 @@ class AppSettings(BaseSettings):
 
     @field_validator("authorized_numbers", mode="before")
     def _parse_csv_to_list(cls, value: str) -> List[str]:
-        return value.split(",")
+        # Pode vir como lista (já parseada) ou como string CSV; trate ambos os casos
+        if isinstance(value, list):
+            return value
+        if value is None:
+            return []
+        return str(value).split(",")
