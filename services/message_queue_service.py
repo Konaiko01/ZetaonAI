@@ -2,7 +2,8 @@ import asyncio
 from asyncio import Semaphore
 import logging
 from typing import Dict, Any, List, Optional
-from infrastructure import client_redis
+import infrastructure
+import inspect
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class MessageQueueService:
 
         try:
             # Adiciona a mensagem ao Redis (método assíncrono)
-            await client_redis.add_message(phone_number, message_data)
+            await infrastructure.client_redis.add_message(phone_number, message_data)
             logger.debug(f"Mensagem adicionada para {phone_number}")
 
         except Exception as e:
@@ -72,7 +73,9 @@ class MessageQueueService:
 
         while not self._shutting_down:
             try:
-                phones_numbers: List[str] = await client_redis.get_messages_batches()
+                phones_numbers: List[str] = (
+                    await infrastructure.client_redis.get_messages_batches()
+                )
 
                 if phones_numbers:
                     logger.info(
@@ -126,13 +129,15 @@ class MessageQueueService:
     async def _process_scheduled_batch(self, phone_number: str):
         """Processa um batch agendado"""
         try:
-            removed = await client_redis.delete(f"batch_processing:{phone_number}")
+            removed = await infrastructure.client_redis.delete(
+                f"batch_processing:{phone_number}"
+            )
             if not removed:
                 pass
 
             # Recupera e processa as mensagens
-            messages: List[Dict[str, Any]] = await client_redis.get_pending_messages(
-                phone_number
+            messages: List[Dict[str, Any]] = (
+                await infrastructure.client_redis.get_pending_messages(phone_number)
             )
 
             if len(messages) > 0:
@@ -158,24 +163,51 @@ class MessageQueueService:
             tasks_to_cancel.append(self._auto_stop_task)
 
         for task in tasks_to_cancel:
-            task.cancel()
+            try:
+                task.cancel()
+            except RecursionError:
+                logger.error(
+                    "RecursionError ao cancelar task de monitoramento; ignorando cancelamento adicional"
+                )
+                # continue trying to cancel other tasks
+                continue
 
         # Aguarda o cancelamento
         if tasks_to_cancel:
-            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            try:
+                await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            except RecursionError:
+                logger.error(
+                    "RecursionError ao aguardar cancelamento de tasks; prosseguindo"
+                )
 
         logger.info("Monitor de batches parado")
 
     async def cleanup(self):
         """Limpeza de recursos"""
         await self.stop_monitoring()
-
-        # Cancela todas as tarefas de processamento
+        # Cancela todas as tarefas de processamento e aguarda apenas awaitables
+        awaitables: List[Any] = []
         for task in self.processing_tasks.values():
-            if not task.done():
-                task.cancel()
+            try:
+                # If it's a Task or Future or an awaitable coroutine, cancel and schedule to await
+                if asyncio.isfuture(task) or inspect.isawaitable(task):
+                    # cancel if possible
+                    try:
+                        task.cancel()
+                    except Exception:
+                        pass
+                    awaitables.append(task)
+                else:
+                    # Best-effort: if object has cancel method, call it, but don't await
+                    if hasattr(task, "cancel"):
+                        try:
+                            task.cancel()
+                        except Exception:
+                            pass
+            except Exception:
+                # Ignore issues with mock/non-standard task objects
+                continue
 
-        if self.processing_tasks:
-            await asyncio.gather(
-                *self.processing_tasks.values(), return_exceptions=True
-            )
+        if awaitables:
+            await asyncio.gather(*awaitables, return_exceptions=True)

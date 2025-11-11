@@ -1,16 +1,19 @@
 import pytest
+import pytest_asyncio
 import asyncio
 from unittest.mock import patch, AsyncMock
 from services.message_queue_service import MessageQueueService
 
 
-@pytest.fixture
-def message_queue_service():
+@pytest_asyncio.fixture
+async def message_queue_service():
     """Fixture para criar uma instância do MessageQueueService"""
     service = MessageQueueService()
-    yield service
-    # Cleanup após os testes
-    asyncio.run(service.cleanup())
+    try:
+        yield service
+    finally:
+        # Execute cleanup in the same event loop used by tests
+        await service.cleanup()
 
 
 @pytest.fixture
