@@ -7,11 +7,12 @@ import os
 class ZAPICliet(IChat):
     
     def __init__(self):
-        self._Z_URL = os.getenv("zURL")
-        self._Z_INSTANCIA = os.getenv("zIns")
-        self._Z_TOKEN = os.getenv("zToken")
-        self._S_Z_TOKEN = os.getenv("segzToken")
+        self._Evo_URL = os.getenv("evoURL")
+        self._Evo_INSTANCIA = os.getenv("evoIns")
+        self._Evo_TOKEN = os.getenv("evoToken")
 
+
+##Corrigir os metodos com parametros do z-api para os da evo
     def get_message(self, data) -> str:
         try:
             return str(data["text"]["message"])
