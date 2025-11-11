@@ -21,7 +21,7 @@ class RedisQueue:
             max_connections=10,
             decode_responses=False,  # Mantém bytes para compatibilidade
         )
-        self.batch_timeout = settings.batch_processing_delay
+        self.batch_timeout = settings.debounce_delay
         self.is_healthy: bool = False
 
     async def check_health(self) -> bool:
@@ -38,11 +38,12 @@ class RedisQueue:
     @validator_health
     async def add_message(
         self,
-        key: str,
+        id: str,
         payload_data: Dict[str, Any],
         expire: int = 60 * 60 * 24,  # 1 dia em segundos
     ) -> None:
         """Adiciona mensagem à fila do Redis com verificação de saúde"""
+        key = f"whatsapp:{id}"
         try:
             message_json = json.dumps(payload_data, ensure_ascii=False)
             await self._redis.rpush(key, message_json)  # type: ignore[attr-defined]
@@ -51,7 +52,7 @@ class RedisQueue:
             await self._redis.expire(key, expire)
 
             # Agenda o processamento desta chave
-            await self._save_batch_processing(key)
+            await self._save_debounce(key)
 
             logger.info(f"Mensagem adicionada à fila para chave: {key}")
             logger.debug(f"Conteúdo da mensagem: {payload_data}")
@@ -61,13 +62,13 @@ class RedisQueue:
             )
             raise e
 
-    async def _save_batch_processing(self, id: str) -> None:
+    async def _save_debounce(self, id: str) -> None:
         """Agenda o processamento do batch para este id"""
         import time
 
         try:
             # Define um timestamp de expiração no Redis
-            processing_key = f"batch_processing:{id}"
+            processing_key = f"debounce:{id}"
             expiry_time = time.time() + self.batch_timeout
 
             logger.info(f"AGENDANDO: {id} -> expira em {self.batch_timeout}")
@@ -124,7 +125,7 @@ class RedisQueue:
         import time
 
         try:
-            batch_keys: List[bytes] = await self._redis.keys("batch_processing:*")  # type: ignore[attr-defined]
+            batch_keys: List[bytes] = await self._redis.keys("debounce:*")  # type: ignore[attr-defined]
             phones_numbers: List[str] = []
 
             if batch_keys:
@@ -152,16 +153,6 @@ class RedisQueue:
             return await self._redis.delete(key)
         except Exception as e:
             logger.error(f"Erro ao deletar chave {key} do Redis: {e}", exc_info=True)
-            raise e
-
-    async def llen(self, key: str) -> int:
-        """Retorna o tamanho da lista"""
-        try:
-            return await self._redis.llen(key)  # type: ignore[attr-defined]
-        except Exception as e:
-            logger.error(
-                f"Erro ao obter tamanho da lista para chave {key}: {e}", exc_info=True
-            )
             raise e
 
     async def close(self):

@@ -20,7 +20,7 @@ class AppSettings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
 
     # Tempo para processar lote
-    batch_processing_delay: int = 3
+    debounce_delay: int = 3
 
     # Número máximo de tarefas simultâneas
     max_concurrent: int = 5

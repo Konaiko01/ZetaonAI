@@ -21,7 +21,7 @@ class MessageQueueService:
         self.max_concurrent = settings.max_concurrent
         self._semaphore = Semaphore(self.max_concurrent)
 
-    async def start_monitoring(self):
+    async def refresh_monitoring_cycle(self):
         """Inicia ou reinicia o monitoramento contínuo dos lotes para 1 minuto"""
         # Cancela o timer de auto-stop anterior se existir
         if self._auto_stop_task and not self._auto_stop_task.done():
@@ -41,7 +41,7 @@ class MessageQueueService:
         self._auto_stop_task = asyncio.create_task(self._auto_stop_monitoring())
         logger.info(f"Monitor será encerrado em {self._monitor_duration} segundos")
 
-    async def add_message(self, phone_number: str, message_data: dict[str, Any]):
+    async def add_message(self, phone_number: str, message_data: Dict[str, Any]):
         """Adiciona mensagem ao Redis e agenda processamento"""
         if self._shutting_down:
             logger.warning("Serviço está desligando, mensagem ignorada")
@@ -117,17 +117,14 @@ class MessageQueueService:
                     f"(semaphore: {self._semaphore._value}/{self.max_concurrent})"
                 )
 
-                await self._process_single_batch(phone_number)
+                await self._process_scheduled_batch(phone_number)
 
             except Exception as e:
                 logger.error(f"Erro ao processar {phone_number}: {e}")
                 raise
 
-    async def _process_single_batch(self, phone_number: str):
-        """Processa um único batch (mantém a lógica original)"""
-
     async def _process_scheduled_batch(self, phone_number: str):
-        """Processa um batch agendado"""
+        """Processa um lote agendado"""
         try:
             removed = await infrastructure.client_redis.delete(
                 f"batch_processing:{phone_number}"
@@ -141,8 +138,7 @@ class MessageQueueService:
             )
 
             if len(messages) > 0:
-                # TODO: Implementar a lógica real de processamento
-                print("Implemente apartir daqui")
+                await self._process_single_batch(phone_number, messages)
 
                 logger.info(f"Batch processado com sucesso para {phone_number}")
             else:
@@ -150,6 +146,13 @@ class MessageQueueService:
 
         except Exception as e:
             logger.error(f"Erro ao processar batch agendado para {phone_number}: {e}")
+
+    async def _process_single_batch(
+        self, phone_number: str, messages: List[Dict[str, Any]]
+    ):
+        """Processa um único lote de mensagens"""
+        # TODO: Implementar a lógica real de processamento
+        print("Implemente apartir daqui")
 
     async def stop_monitoring(self):
         """Para o monitoramento gracefuly"""

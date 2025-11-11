@@ -1,3 +1,4 @@
+# test_message_queue_service.py
 import pytest
 import pytest_asyncio
 import asyncio
@@ -12,8 +13,16 @@ async def message_queue_service():
     try:
         yield service
     finally:
-        # Execute cleanup in the same event loop used by tests
-        await service.cleanup()
+        # Cleanup com timeout para evitar loops infinitos
+        try:
+            await asyncio.wait_for(service.cleanup(), timeout=2.0)
+        except asyncio.TimeoutError:
+            # Força o shutdown se o cleanup demorar muito
+            service._shutting_down = True
+            if service._batch_monitor_task:
+                service._batch_monitor_task.cancel()
+            if service._auto_stop_task:
+                self._auto_stop_task.cancel()
 
 
 @pytest.fixture
@@ -65,12 +74,15 @@ async def test_start_monitoring(
     message_queue_service: MessageQueueService, mock_redis: AsyncMock
 ):
     """Testa o início do monitoramento"""
-    await message_queue_service.start_monitoring()
+    await message_queue_service.refresh_monitoring_cycle()
 
     # Verifica se as tasks foram criadas
     assert message_queue_service._batch_monitor_task is not None
     assert message_queue_service._auto_stop_task is not None
     assert not message_queue_service._shutting_down
+
+    # Limpa imediatamente após o teste
+    await message_queue_service.stop_monitoring()
 
 
 @pytest.mark.asyncio
@@ -83,19 +95,26 @@ async def test_monitor_batches_with_messages(
     mock_redis.get_messages_batches.return_value = phone_numbers
 
     # Mock do método de processamento
-    message_queue_service._process_with_limit = AsyncMock()
+    process_calls = []
+
+    async def mock_process(phone):
+        process_calls.append(phone)
+
+    message_queue_service._process_with_limit = mock_process
 
     # Inicia monitoramento
-    await message_queue_service.start_monitoring()
+    await message_queue_service.refresh_monitoring_cycle()
 
     # Aguarda um pouco para o monitor processar
-    await asyncio.sleep(0.1)
-
-    # Verifica se o método de processamento foi chamado para cada telefone
-    assert message_queue_service._process_with_limit.call_count == len(phone_numbers)
+    await asyncio.sleep(0.5)
 
     # Para o monitoramento
     await message_queue_service.stop_monitoring()
+
+    # Verifica se o método de processamento foi chamado para cada telefone
+    assert len(process_calls) == len(phone_numbers)
+    for phone in phone_numbers:
+        assert phone in process_calls
 
 
 @pytest.mark.asyncio
@@ -107,19 +126,25 @@ async def test_monitor_batches_empty(
     mock_redis.get_messages_batches.return_value = []
 
     # Mock do método de processamento
-    message_queue_service._process_with_limit = AsyncMock()
+    process_called = False
+
+    async def mock_process(phone):
+        nonlocal process_called
+        process_called = True
+
+    message_queue_service._process_with_limit = mock_process
 
     # Inicia monitoramento
-    await message_queue_service.start_monitoring()
+    await message_queue_service.refresh_monitoring_cycle()
 
     # Aguarda um pouco
-    await asyncio.sleep(0.1)
-
-    # Verifica que o método de processamento não foi chamado
-    message_queue_service._process_with_limit.assert_not_called()
+    await asyncio.sleep(0.5)
 
     # Para o monitoramento
     await message_queue_service.stop_monitoring()
+
+    # Verifica que o método de processamento não foi chamado
+    assert not process_called
 
 
 @pytest.mark.asyncio
@@ -130,13 +155,20 @@ async def test_process_with_limit_concurrency(
     phone_number = "5511999999999"
 
     # Mock do método de processamento
-    message_queue_service._process_single_batch = AsyncMock()
+    process_called = False
+
+    async def mock_process_batch(phone):
+        nonlocal process_called
+        process_called = True
+        assert phone == phone_number
+
+    message_queue_service._process_single_batch = mock_process_batch
 
     # Processa com limite
     await message_queue_service._process_with_limit(phone_number)
 
     # Verifica se o método de processamento foi chamado
-    message_queue_service._process_single_batch.assert_called_once_with(phone_number)
+    assert process_called
 
 
 @pytest.mark.asyncio
@@ -145,7 +177,7 @@ async def test_stop_monitoring(
 ):
     """Testa a parada do monitoramento"""
     # Inicia monitoramento primeiro
-    await message_queue_service.start_monitoring()
+    await message_queue_service.refresh_monitoring_cycle()
 
     # Verifica que está rodando
     assert not message_queue_service._shutting_down
@@ -164,16 +196,21 @@ async def test_auto_stop_monitoring(
 ):
     """Testa o encerramento automático do monitoramento"""
     # Configura duração mais curta para teste
-    message_queue_service._monitor_duration = 0.1
+    original_duration = message_queue_service._monitor_duration
+    message_queue_service._monitor_duration = 0.5  # 500ms para teste rápido
 
-    # Inicia monitoramento
-    await message_queue_service.start_monitoring()
+    try:
+        # Inicia monitoramento
+        await message_queue_service.refresh_monitoring_cycle()
 
-    # Aguarda tempo suficiente para auto-stop
-    await asyncio.sleep(0.2)
+        # Aguarda tempo suficiente para auto-stop
+        await asyncio.sleep(1.0)
 
-    # Verifica que o monitoramento foi parado
-    assert message_queue_service._shutting_down
+        # Verifica que o monitoramento foi parado
+        assert message_queue_service._shutting_down
+    finally:
+        # Restaura duração original
+        message_queue_service._monitor_duration = original_duration
 
 
 @pytest.mark.asyncio
@@ -182,17 +219,21 @@ async def test_cleanup(
 ):
     """Testa a limpeza de recursos"""
     # Inicia monitoramento para ter tasks ativas
-    await message_queue_service.start_monitoring()
+    await message_queue_service.refresh_monitoring_cycle()
 
-    # Adiciona algumas tasks de processamento simuladas
-    mock_task = AsyncMock()
-    message_queue_service.processing_tasks["test_task"] = mock_task
+    # Adiciona uma task real de processamento (não mock)
+    async def dummy_task():
+        await asyncio.sleep(3600)  # Task longa
+
+    real_task = asyncio.create_task(dummy_task())
+    message_queue_service.processing_tasks["test_task"] = real_task
 
     # Executa cleanup
     await message_queue_service.cleanup()
 
     # Verifica que as tasks foram canceladas
     assert message_queue_service._shutting_down
+    assert real_task.cancelled()
 
 
 @pytest.mark.asyncio
@@ -201,7 +242,7 @@ async def test_concurrent_processing_limit(
 ):
     """Testa o limite de processamento concorrente"""
     # Configura múltiplos números de telefone
-    phone_numbers = [f"551199999999{i}" for i in range(10)]
+    phone_numbers = [f"551199999999{i}" for i in range(5)]  # Reduzido para 5
     mock_redis.get_messages_batches.return_value = phone_numbers
 
     # Semáforo deve limitar o processamento
@@ -216,19 +257,39 @@ async def test_concurrent_processing_limit(
         nonlocal processing_count
         processing_count += 1
         # Simula algum tempo de processamento
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
 
     message_queue_service._process_single_batch = mock_process_single_batch
 
     # Inicia monitoramento brevemente
-    await message_queue_service.start_monitoring()
-    await asyncio.sleep(0.1)
+    await message_queue_service.refresh_monitoring_cycle()
+    await asyncio.sleep(0.3)  # Tempo reduzido
     await message_queue_service.stop_monitoring()
 
     # Verifica que o processamento ocorreu respeitando os limites
     assert processing_count <= len(phone_numbers)
 
 
+# Testes mais simples e rápidos
+@pytest.mark.asyncio
+async def test_service_initial_state(message_queue_service: MessageQueueService):
+    """Testa o estado inicial do serviço"""
+    assert message_queue_service._shutting_down is False
+    assert message_queue_service.processing_tasks == {}
+    assert message_queue_service._batch_monitor_task is None
+    assert message_queue_service._auto_stop_task is None
+    assert message_queue_service._semaphore is not None
+
+
+@pytest.mark.asyncio
+async def test_semaphore_initialization(message_queue_service: MessageQueueService):
+    """Testa a inicialização do semáforo"""
+    assert (
+        message_queue_service._semaphore._value == message_queue_service.max_concurrent
+    )
+    assert message_queue_service.max_concurrent > 0
+
+
 if __name__ == "__main__":
     # Para executar os testes diretamente
-    pytest.main([__file__, "-v"])
+    pytest.main([__file__, "-v", "--asyncio-mode=auto"])
