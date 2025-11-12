@@ -5,7 +5,8 @@ import threading
 import signal
 from services import stop_services
 from routes import create_app
-
+from waitress import serve
+from config import settings
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -17,12 +18,12 @@ async def main():
     """Função principal assíncrona"""
     try:
         # Cria a aplicação Flask
-        app = create_app()
-        logger.info("Iniciando servidor Flask na porta 8080...")
+        app = await create_app()
+        logger.info("Iniciando servidor Flask com Waitress")
 
         # Executa o Waitress em thread separada para não bloquear
         def run_server():
-            serve(app, host="0.0.0.0", port=8080)
+            serve(app, host="0.0.0.0", port=settings.port)
 
         server_thread = threading.Thread(target=run_server, daemon=True)
         server_thread.start()
@@ -54,5 +55,3 @@ if __name__ == "__main__":
         logger.info("Servidor interrompido pelo usuário")
     except Exception as e:
         logger.error(f"Erro não esperado: {e}", exc_info=True)
-    finally:
-        logger.info("Aplicação finalizada")

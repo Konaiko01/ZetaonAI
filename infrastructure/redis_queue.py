@@ -1,6 +1,7 @@
 from redis.asyncio import Redis
 import logging
 import json
+import threading
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from utils.validators import validator_health
@@ -13,16 +14,24 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 class RedisQueue:
     def __init__(self):
-        self._redis: Redis = Redis.from_url(  # type: ignore[arg-type]
-            url=settings.redis_url,
-            socket_connect_timeout=5,
-            socket_timeout=5,
-            retry_on_timeout=True,
-            max_connections=10,
-            decode_responses=False,  # Mantém bytes para compatibilidade
-        )
+        self._local = threading.local()
+        self._redis_url = settings.redis_url
+        self.is_healthy = False
         self.batch_timeout = settings.debounce_delay
-        self.is_healthy: bool = False
+
+    @property
+    def _redis(self):
+        """Obtém a conexão Redis para a thread atual"""
+        if not hasattr(self._local, "redis"):
+            self._local.redis = Redis.from_url(  # type: ignore[arg-type]
+                url=self._redis_url,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True,
+                max_connections=10,
+                decode_responses=True,
+            )
+        return self._local.redis
 
     async def check_health(self) -> bool:
         """Verifica se o Redis está respondendo (assíncrono)"""
@@ -30,7 +39,7 @@ class RedisQueue:
             await self._redis.ping()  # type: ignore[attr-defined]
             self.is_healthy = True
             logger.info("Conexão com Redis estabelecida com sucesso")
-        except (ConnectionError, TimeoutError, Exception) as e:
+        except Exception as e:
             self.is_healthy = False
             logger.error(f"Falha na conexão com Redis: {str(e)}")
         return self.is_healthy
@@ -52,7 +61,7 @@ class RedisQueue:
             await self._redis.expire(key, expire)
 
             # Agenda o processamento desta chave
-            await self._save_debounce(key)
+            await self._save_debounce(id)
 
             logger.info(f"Mensagem adicionada à fila para chave: {key}")
             logger.debug(f"Conteúdo da mensagem: {payload_data}")
@@ -71,12 +80,14 @@ class RedisQueue:
             processing_key = f"debounce:{id}"
             expiry_time = time.time() + self.batch_timeout
 
-            logger.info(f"AGENDANDO: {id} -> expira em {self.batch_timeout}")
+            logger.info(
+                f"AGENDANDO: {processing_key} -> expira em {self.batch_timeout}"
+            )
 
             await self._redis.set(processing_key, str(expiry_time))
             await self._redis.expireat(processing_key, int(expiry_time + 60))
 
-            logger.info(f"Lote agendado para {id} em {self.batch_timeout}s")
+            logger.info(f"Lote agendado para {processing_key} em {self.batch_timeout}s")
 
         except Exception as e:
             logger.error(f"Erro ao agendar batch para {id}: {e}")
@@ -105,8 +116,7 @@ class RedisQueue:
             result: List[Dict[str, Any]] = []
             for msg_bytes in redis_messages:  # type: ignore
                 try:
-                    msg_str: str = msg_bytes.decode("utf-8")  # type: ignore
-                    message_dict: Dict[str, Any] = json.loads(msg_str)  # type: ignore
+                    message_dict: Dict[str, Any] = json.loads(msg_bytes)  # type: ignore
                     result.append(message_dict)
                     logger.debug(f"Mensagem decodificada: {message_dict}")
                 except (json.JSONDecodeError, UnicodeDecodeError) as e:
@@ -125,7 +135,7 @@ class RedisQueue:
         import time
 
         try:
-            batch_keys: List[bytes] = await self._redis.keys("debounce:*")  # type: ignore[attr-defined]
+            batch_keys: list[str] = await self._redis.keys("debounce:*")  # type: ignore[attr-defined]
             phones_numbers: List[str] = []
 
             if batch_keys:
@@ -137,7 +147,7 @@ class RedisQueue:
                     expiry_str: Optional[bytes] = await self._redis.get(key)
 
                     if expiry_str and float(expiry_str) <= time.time():
-                        phones_numbers.append(key.decode("utf-8").split(":")[1])
+                        phones_numbers.append(key.split(":")[1])
                 except Exception as e:
                     logger.error(f"Erro ao processar batch key {key}: {e}")
                     continue

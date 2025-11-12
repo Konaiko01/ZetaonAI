@@ -16,7 +16,7 @@ webhook_bp = Blueprint("webhook", __name__)
 @webhook_bp.route("/evolution", methods=["POST"])
 def evolution_webhook():
     payload: Optional[Dict[str, Any]] = request.json
-    logger.info(f"Payload recebido no webhook: {payload}")
+    logger.debug(f"Payload recebido no webhook: {payload}")
 
     if not payload:
         logger.warning("Nenhum payload recebido no webhook.")

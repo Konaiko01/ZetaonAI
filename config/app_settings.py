@@ -22,8 +22,14 @@ class AppSettings(BaseSettings):
     # Tempo para processar lote
     debounce_delay: int = 3
 
+    # Tempo de inatividade para parar o monitor
+    monitor_timeout: int = 10
+
     # Número máximo de tarefas simultâneas
     max_concurrent: int = 5
+
+    # Porta do servidor
+    port: int = 8080
 
     # Números autorizados a usar o bot
     authorized_numbers: Union[List[str], str] = []

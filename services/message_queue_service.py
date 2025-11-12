@@ -3,7 +3,6 @@ from asyncio import Semaphore
 import logging
 from typing import Dict, Any, List, Optional
 import infrastructure
-import inspect
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -15,31 +14,36 @@ class MessageQueueService:
         self._shutting_down = False
         self._batch_monitor_task: Optional[asyncio.Task[Any]] = None
         self._auto_stop_task: Optional[asyncio.Task[Any]] = None
-        self._monitor_duration = 10  # duração em segundos
+        self._monitor_duration = settings.monitor_timeout  # duração em segundos
+        self._monitoring_active = False  # Flag para controlar se o monitor está ativo
 
         # Controla o número máximo de tasks simultâneas
         self.max_concurrent = settings.max_concurrent
         self._semaphore = Semaphore(self.max_concurrent)
 
     async def refresh_monitoring_cycle(self):
-        """Inicia ou reinicia o monitoramento contínuo dos lotes para 1 minuto"""
-        # Cancela o timer de auto-stop anterior se existir
-        if self._auto_stop_task and not self._auto_stop_task.done():
-            self._auto_stop_task.cancel()
-            try:
-                await self._auto_stop_task
-            except asyncio.CancelledError:
-                pass
+        """Inicia ou reinicia o monitoramento contínuo dos lotes"""
+        # Se já está monitorando, apenas reinicia o timer de auto-stop
+        if self._monitoring_active:
+            await self._restart_auto_stop_timer()
+            logger.debug("Timer de auto-stop reiniciado")
+            return
+
+        logger.debug("Iniciando novo timer de auto-stop")
+        # Se não está monitorando, inicia tudo
+        self._shutting_down = False
+        self._monitoring_active = True
 
         # Inicia o monitor se não estiver rodando
         if not self._batch_monitor_task or self._batch_monitor_task.done():
-            self._shutting_down = False
             self._batch_monitor_task = asyncio.create_task(self._monitor_batches())
             logger.info("Monitor de batches iniciado")
 
-        # Agenda novo auto-stop
-        self._auto_stop_task = asyncio.create_task(self._auto_stop_monitoring())
-        logger.info(f"Monitor será encerrado em {self._monitor_duration} segundos")
+        # Agenda auto-stop
+        await self._restart_auto_stop_timer()
+        logger.info(
+            f"Monitor será encerrado em {self._monitor_duration} segundos de inatividade"
+        )
 
     async def add_message(self, phone_number: str, message_data: Dict[str, Any]):
         """Adiciona mensagem ao Redis e agenda processamento"""
@@ -56,16 +60,34 @@ class MessageQueueService:
             logger.error(f"Erro ao adicionar mensagem para {phone_number}: {e}")
             raise e
 
+    async def _restart_auto_stop_timer(self):
+        """Reinicia o timer de auto-stop"""
+        # Cancela o timer anterior se existir
+        if self._auto_stop_task and not self._auto_stop_task.done():
+            self._auto_stop_task.cancel()
+            try:
+                await self._auto_stop_task
+            except asyncio.CancelledError:
+                logger.debug("Timer de auto-stop anterior cancelado")
+
+        # Cria novo timer
+        self._auto_stop_task = asyncio.create_task(self._auto_stop_monitoring())
+
     async def _auto_stop_monitoring(self):
-        """Agenda o encerramento automático do monitoramento"""
+        """Agenda o encerramento automático do monitoramento após período de inatividade"""
+        logger.debug(f"Auto-stop: aguardando {self._monitor_duration}s")
         try:
             await asyncio.sleep(self._monitor_duration)
-            await self.stop_monitoring()
-            logger.info(
-                "Monitor de batches encerrado automaticamente após tempo limite"
-            )
         except asyncio.CancelledError:
-            logger.info("Timer de auto-stop cancelado - monitor continuará rodando")
+            # Cancelamento esperado ao reiniciar o timer; sair silenciosamente
+            await asyncio.sleep(self._monitor_duration)
+
+        # Se chegou aqui, o tempo expirou — fazer o stop normalmente
+        try:
+            await self.stop_monitoring()
+            logger.info("Monitor de batches encerrado automaticamente por inatividade")
+        except Exception as e:
+            logger.error(f"Erro ao encerrar monitor no auto-stop: {e}")
 
     async def _monitor_batches(self):
         """Monitora continuamente os lotes com limite de concorrência (em paralelo)"""
@@ -102,11 +124,18 @@ class MessageQueueService:
                             f"Processamento: {successful} sucesso, {failed} falhas"
                         )
 
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as e:
+                logger.debug("Monitor de batches cancelado")
                 break
             except Exception as e:
                 logger.error(f"Erro no monitor: {e}")
-            await asyncio.sleep(1)
+
+            # Pequena pausa para não sobrecarregar
+            try:
+                await asyncio.sleep(1.0)
+            except asyncio.CancelledError:
+                logger.debug("Monitor de batches cancelado durante sleep")
+                await asyncio.sleep(1)
 
     async def _process_with_limit(self, phone_number: str) -> None:
         """Processa um telefone respeitando o limite de concorrência"""
@@ -126,11 +155,7 @@ class MessageQueueService:
     async def _process_scheduled_batch(self, phone_number: str):
         """Processa um lote agendado"""
         try:
-            removed = await infrastructure.client_redis.delete(
-                f"batch_processing:{phone_number}"
-            )
-            if not removed:
-                pass
+            await infrastructure.client_redis.delete(f"debounce:{phone_number}")
 
             # Recupera e processa as mensagens
             messages: List[Dict[str, Any]] = (
@@ -152,65 +177,73 @@ class MessageQueueService:
     ):
         """Processa um único lote de mensagens"""
         # TODO: Implementar a lógica real de processamento
-        print("Implemente apartir daqui")
+        logger.info(f"Processando {len(messages)} mensagens para {phone_number}")
 
     async def stop_monitoring(self):
-        """Para o monitoramento gracefuly"""
+        """Para o monitoramento com proteção contra RecursionError"""
         self._shutting_down = True
+        self._monitoring_active = False
 
-        # Cancela tarefas de monitoramento
-        tasks_to_cancel: List[Any] = []
-        if self._batch_monitor_task and not self._batch_monitor_task.done():
-            tasks_to_cancel.append(self._batch_monitor_task)
-        if self._auto_stop_task and not self._auto_stop_task.done():
-            tasks_to_cancel.append(self._auto_stop_task)
+        logger.debug("Iniciando parada graceful do monitoramento...")
 
-        for task in tasks_to_cancel:
-            try:
-                task.cancel()
-            except RecursionError:
-                logger.error(
-                    "RecursionError ao cancelar task de monitoramento; ignorando cancelamento adicional"
-                )
-                # continue trying to cancel other tasks
-                continue
+        # Usa asyncio.shield para evitar cancelamento recursivo
+        try:
+            # Para o batch monitor
+            if self._batch_monitor_task and not self._batch_monitor_task.done():
+                try:
+                    self._batch_monitor_task.cancel()
+                    # Aguarda com shield para proteger da recursão
+                    await asyncio.wait_for(
+                        asyncio.shield(self._batch_monitor_task), timeout=3.0
+                    )
+                except asyncio.CancelledError:
+                    pass
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout ao parar batch monitor")
 
-        # Aguarda o cancelamento
-        if tasks_to_cancel:
-            try:
-                await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
-            except RecursionError:
-                logger.error(
-                    "RecursionError ao aguardar cancelamento de tasks; prosseguindo"
-                )
+            # Para o auto-stop task
+            if self._auto_stop_task and not self._auto_stop_task.done():
+                try:
+                    self._auto_stop_task.cancel()
+                    await asyncio.wait_for(
+                        asyncio.shield(self._auto_stop_task), timeout=2.0
+                    )
+                except asyncio.CancelledError:
+                    pass
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout ao parar auto-stop task")
 
-        logger.info("Monitor de batches parado")
+        except Exception as e:
+            logger.error(f"Erro durante parada do monitoramento: {e}")
+
+        logger.debug("Monitor de batches parado com sucesso")
 
     async def cleanup(self):
-        """Limpeza de recursos"""
+        """Limpeza de recursos - versão iterativa"""
         await self.stop_monitoring()
-        # Cancela todas as tarefas de processamento e aguarda apenas awaitables
-        awaitables: List[Any] = []
-        for task in self.processing_tasks.values():
-            try:
-                # If it's a Task or Future or an awaitable coroutine, cancel and schedule to await
-                if asyncio.isfuture(task) or inspect.isawaitable(task):
-                    # cancel if possible
-                    try:
-                        task.cancel()
-                    except Exception:
-                        pass
-                    awaitables.append(task)
-                else:
-                    # Best-effort: if object has cancel method, call it, but don't await
-                    if hasattr(task, "cancel"):
-                        try:
-                            task.cancel()
-                        except Exception:
-                            pass
-            except Exception:
-                # Ignore issues with mock/non-standard task objects
-                continue
 
-        if awaitables:
-            await asyncio.gather(*awaitables, return_exceptions=True)
+        # Coleta todas as tasks de processamento
+        processing_tasks = list(self.processing_tasks.values())
+        self.processing_tasks.clear()
+
+        # Cancela tasks de forma iterativa
+        for task in processing_tasks:
+            try:
+                if asyncio.isfuture(task) and not task.done():
+                    task.cancel()
+            except Exception as e:
+                logger.debug(f"Erro ao cancelar task de processamento: {e}")
+
+        # Aguarda cancelamento com timeout
+        if processing_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*processing_tasks, return_exceptions=True),
+                    timeout=3.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout ao aguardar cancelamento de tasks de processamento"
+                )
+            except Exception as e:
+                logger.error(f"Erro no cleanup: {e}")

@@ -157,7 +157,7 @@ async def test_process_with_limit_concurrency(
     # Mock do método de processamento
     process_called = False
 
-    async def mock_process_batch(phone):
+    async def mock_process_batch(phone, messages):
         nonlocal process_called
         process_called = True
         assert phone == phone_number
