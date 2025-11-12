@@ -1,7 +1,7 @@
 from pymongo import MongoClient
 import logging
 from typing import Any, Dict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from config import settings
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -112,7 +112,9 @@ class MongoDB:
             raise e
 
     def get_history(
-        self, phone_number: str, limit: int = 10, validate: bool = True
+        self,
+        phone_number: str,
+        limit: int = 10,
     ) -> list[dict[str, Any]]:
         """Recupera o histórico de conversa, filtrando mensagens expiradas"""
         if not self.is_healthy or self.conversations is None:
@@ -132,22 +134,9 @@ class MongoDB:
             if not result:
                 return []
 
-            # Filtra apenas mensagens não expiradas
-            current_time = datetime.now(timezone.utc)
+            messages = [msg for msg in result.get("messages", [])]
 
-            if validate:
-                messages = [
-                    msg
-                    for msg in result.get("messages", [])
-                    if msg.get("created_at", current_time + timedelta(days=1))
-                    > current_time
-                ]
-            else:
-                messages = [msg for msg in result.get("messages", [])]
-
-            logger.info(
-                f"Recuperadas {len(messages)} mensagens válidas para {phone_number}"
-            )
+            logger.info(f"Recuperadas {len(messages)} mensagens para {phone_number}")
             return messages
 
         except Exception as e:

@@ -41,8 +41,8 @@ def test_test_env_settings():
     assert settings.redis_url == "redis://teste:6380"
 
     # Verifica delay de processamento
-    assert settings.batch_processing_delay == 100
-    assert isinstance(settings.batch_processing_delay, int)
+    assert settings.debounce_delay == 100
+    assert isinstance(settings.debounce_delay, int)
 
     # Verifica números autorizados
     assert isinstance(settings.authorized_numbers, list)
