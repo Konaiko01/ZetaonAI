@@ -69,9 +69,12 @@ class MessageQueueService:
                 await self._auto_stop_task
             except asyncio.CancelledError:
                 logger.debug("Timer de auto-stop anterior cancelado")
+            except Exception as e:
+                logger.debug(f"Exceção ao cancelar timer: {e}")
 
-        # Cria novo timer
-        self._auto_stop_task = asyncio.create_task(self._auto_stop_monitoring())
+        # Cria novo timer apenas se o monitoramento estiver ativo
+        if self._monitoring_active and not self._shutting_down:
+            self._auto_stop_task = asyncio.create_task(self._auto_stop_monitoring())
 
     async def _auto_stop_monitoring(self):
         """Agenda o encerramento automático do monitoramento após período de inatividade"""
@@ -177,7 +180,7 @@ class MessageQueueService:
     ):
         """Processa um único lote de mensagens"""
         # TODO: Implementar a lógica real de processamento
-        logger.info(f"Processando {len(messages)} mensagens para {phone_number}")
+        logger.info(f"AQUI A MENSAGEM É PROCESSADA")
 
     async def stop_monitoring(self):
         """Para o monitoramento com proteção contra RecursionError"""
@@ -201,17 +204,17 @@ class MessageQueueService:
                 except asyncio.TimeoutError:
                     logger.warning("Timeout ao parar batch monitor")
 
-            # Para o auto-stop task
-            if self._auto_stop_task and not self._auto_stop_task.done():
-                try:
-                    self._auto_stop_task.cancel()
-                    await asyncio.wait_for(
-                        asyncio.shield(self._auto_stop_task), timeout=2.0
-                    )
-                except asyncio.CancelledError:
-                    pass
-                except asyncio.TimeoutError:
-                    logger.warning("Timeout ao parar auto-stop task")
+            # # Para o auto-stop task
+            # if self._auto_stop_task and not self._auto_stop_task.done():
+            #     try:
+            #         self._auto_stop_task.cancel()
+            #         await asyncio.wait_for(
+            #             asyncio.shield(self._auto_stop_task), timeout=2.0
+            #         )
+            #     except asyncio.CancelledError:
+            #         pass
+            #     except asyncio.TimeoutError:
+            #         logger.warning("Timeout ao parar auto-stop task")
 
         except Exception as e:
             logger.error(f"Erro durante parada do monitoramento: {e}")
