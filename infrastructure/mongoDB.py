@@ -1,4 +1,4 @@
-from pymongo import MongoClient
+from motor.motor_asyncio import AsyncIOMotorClient
 import logging
 from typing import Any, Dict
 from datetime import datetime, timezone
@@ -9,28 +9,27 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 class MongoDB:
     def __init__(self) -> None:
-        self.client: MongoClient[Any] | None = None
+        self.client: Any = None
         self.db = None
         self.conversations = None
         self.is_healthy = False
-        self._initialize_connection()
 
-    def _initialize_connection(self) -> None:
+    async def initialize_connection(self) -> None:
         """Inicializa a conexão com o MongoDB e verifica saúde"""
         from pymongo.errors import ServerSelectionTimeoutError, ConnectionFailure
 
         try:
-            self.client = MongoClient(
+            self.client = AsyncIOMotorClient(
                 settings.mongodb_uri, serverSelectionTimeoutMS=5000
             )
             # Testa a conexão imediatamente
-            self.client.admin.command("ping")
+            await self.client.admin.command("ping")
             self.db = self.client[settings.mongodb_db_name]
             self.conversations = self.db["conversations"]
             self.is_healthy = True
 
             # Cria índices apenas se a conexão estiver saudável
-            self._create_indexes()
+            await self._create_indexes()
             logger.info("Conexão com MongoDB estabelecida com sucesso")
 
         except (ServerSelectionTimeoutError, ConnectionFailure, Exception) as e:
@@ -41,34 +40,44 @@ class MongoDB:
                 self.db = self.client[settings.mongodb_db_name]
                 self.conversations = self.db["conversations"]
 
-    def check_health(self) -> bool:
+    async def check_health(self) -> bool:
         """Verifica se o MongoDB está respondendo"""
-        return self.is_healthy
+        if not self.is_healthy or self.client is None:
+            return False
 
-    def _create_indexes(self) -> None:
+        try:
+            await self.client.admin.command("ping")
+            return True
+        except Exception:
+            self.is_healthy = False
+            return False
+
+    async def _create_indexes(self) -> None:
         """Cria índice para melhor performance nas consultas de expiração"""
         if not self.is_healthy or self.conversations is None:
             raise ConnectionError("MongoDB não está disponível")
 
         try:
             # Índice para expiração de conversas
-            self.conversations.create_index([("phone_number", 1), ("expires_at", 1)])
+            await self.conversations.create_index(
+                [("phone_number", 1), ("expires_at", 1)]
+            )
 
             # Índice para busca por telefone
-            self.conversations.create_index([("phone_number", 1)])
+            await self.conversations.create_index([("phone_number", 1)])
 
             logger.info("Índice do MongoDB criados/verificados com sucesso")
 
         except Exception as e:
             logger.error(f"Erro ao criar índices: {str(e)}")
 
-    def save(
+    async def save(
         self,
         phone_number: str,
         message_data: Dict[str, Any],
-        msg_type: str,
+        role: str,
     ) -> None:
-        """Salva uma mensagem no histórico da conversa com expiração de 1 dia.
+        """Salva uma mensagem no histórico da conversa.
 
         Garante que o documento contenha:
          - phone_number
@@ -84,11 +93,11 @@ class MongoDB:
             now = datetime.now(timezone.utc)
 
             message_entry: Dict[str, Any] = {
-                "type_message": msg_type,
+                "role": role,
                 "message": message_data,
             }
 
-            db.update_one(
+            await db.update_one(
                 {"phone_number": phone_number},
                 {
                     "$push": {
@@ -111,7 +120,7 @@ class MongoDB:
             logger.error(f"Erro ao salvar conversa: %s", e)
             raise e
 
-    def get_history(
+    async def get_history(
         self,
         phone_number: str,
         limit: int = 10,
@@ -123,7 +132,7 @@ class MongoDB:
         db = self.conversations
         try:
             # Busca a conversa do telefone
-            result = db.find_one(
+            result = await db.find_one(
                 {"phone_number": phone_number},
                 {
                     "messages": {"$slice": -limit},
@@ -142,3 +151,10 @@ class MongoDB:
         except Exception as e:
             logger.error(f"Erro ao recuperar histórico: {str(e)}")
             raise e
+
+    async def close_connection(self) -> None:
+        """Fecha a conexão com o MongoDB"""
+        if self.client:
+            self.client.close()
+            self.is_healthy = False
+            logger.info("Conexão com MongoDB fechada")

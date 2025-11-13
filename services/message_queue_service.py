@@ -3,14 +3,10 @@ from asyncio import Semaphore
 from asyncio import Semaphore
 import logging
 from typing import Dict, Any, List, Optional
-import inspect
 from config import settings
 from services.response_orchestrator_service import ResponseOrchestratorService
-from infrastructure.mongoDB import MongoDB
-from interfaces.clients.queue_interface import IQueue
 from typing import Dict, Any, List, Optional
 import infrastructure
-from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +15,8 @@ class MessageQueueService:
     def __init__(
         self,
         orchestrator: ResponseOrchestratorService,
-        message_repository: MongoDB,
-        redis_queue: IQueue,
+        message_repository: infrastructure.mongoDB.MongoDB,
+        redis_queue: infrastructure.redis_queue.RedisQueue,
     ):
         self.processing_tasks: Dict[str, asyncio.Task[Any]] = {}
         self._shutting_down = False
@@ -32,6 +28,10 @@ class MessageQueueService:
         # Controla o número máximo de tasks simultâneas
         self.max_concurrent = settings.max_concurrent
         self._semaphore = Semaphore(self.max_concurrent)
+
+        self.orchestrator = orchestrator
+        self.message_repository = message_repository
+        self.redis_queue = redis_queue
 
     async def refresh_monitoring_cycle(self):
         """Inicia ou reinicia o monitoramento contínuo dos lotes"""
@@ -66,7 +66,7 @@ class MessageQueueService:
 
         try:
             # Adiciona a mensagem ao Redis (método assíncrono)
-            await infrastructure.client_redis.add_message(phone_number, message_data)
+            await self.redis_queue.add_message(phone_number, message_data)
             logger.debug(f"Mensagem adicionada para {phone_number}")
 
         except Exception as e:
@@ -113,7 +113,7 @@ class MessageQueueService:
         while not self._shutting_down:
             try:
                 phones_numbers: List[str] = (
-                    await infrastructure.client_redis.get_messages_batches()
+                    await self.redis_queue.get_messages_batches()
                 )
 
                 if phones_numbers:
@@ -172,25 +172,28 @@ class MessageQueueService:
     async def _process_scheduled_batch(self, phone_number: str):
         """Processa um lote agendado"""
         try:
-            await infrastructure.client_redis.delete(f"debounce:{phone_number}")
+            await self.redis_queue.delete(f"debounce:{phone_number}")
 
             # Recupera e processa as mensagens
             messages: List[Dict[str, Any]] = (
-                await infrastructure.client_redis.get_pending_messages(phone_number)
+                await self.redis_queue.get_pending_messages(phone_number)
             )
 
             if len(messages) > 0:
                 await self._process_single_batch(phone_number, messages)
 
                 logger.info(
-                    f"Batch processado com sucesso para {phone_number} ({len(new_messages)} msgs)"
+                    f"Batch processado com sucesso para {phone_number} ({len(messages)} msgs)"
                 )
             else:
-                logger.info(f"Nenhuma mensagem pendente para {redis_key} (batch vazio)")
+                logger.info(
+                    f"Nenhuma mensagem pendente para {phone_number} (batch vazio)"
+                )
 
         except Exception as e:
             logger.error(
-                f"Erro ao processar batch agendado para {redis_key}: {e}", exc_info=True
+                f"Erro ao processar batch agendado para {phone_number}: {e}",
+                exc_info=True,
             )
 
     async def _process_single_batch(
@@ -204,9 +207,11 @@ class MessageQueueService:
             f"Enviando lote de {phone_number} ({len(messages)} msgs) para o Orquestrador."
         )
         try:
-            history = await self.message_repository.get_history(phone_number, limit=10)
+            history: List[Dict[str, Any]] = await self.message_repository.get_history(
+                phone_number
+            )
 
-            formatted_new_messages = [
+            formatted_new_messages: List[Dict[str, Any]] = [
                 {"role": "user", "content": msg.get("Mensagem", "")}
                 for msg in messages
                 if msg.get("Mensagem")
@@ -218,9 +223,9 @@ class MessageQueueService:
                 )
                 return
 
-            full_context = history + formatted_new_messages
+            full_context: List[Dict[str, Any]] = history + formatted_new_messages
 
-            await self.orchestrator.execute(context=full_context, phone=phone_number)
+            await self.orchestrator.execute(context=full_context, phone=phone_number)  # type: ignore
 
             try:
                 for msg_data in messages:
@@ -235,13 +240,6 @@ class MessageQueueService:
 
         except Exception as e:
             logger.error(f"Erro ao processar batch agendado para {phone_number}: {e}")
-
-    async def _process_single_batch(
-        self, phone_number: str, messages: List[Dict[str, Any]]
-    ):
-        """Processa um único lote de mensagens"""
-        # TODO: Implementar a lógica real de processamento
-        logger.info(f"AQUI A MENSAGEM É PROCESSADA")
 
     async def stop_monitoring(self):
         """Para o monitoramento com proteção contra RecursionError"""
@@ -311,28 +309,3 @@ class MessageQueueService:
                 )
             except Exception as e:
                 logger.error(f"Erro no cleanup: {e}")
-
-    async def cleanup(self):
-        """Limpeza de recursos"""
-        await self.stop_monitoring()
-        awaitables: List[Any] = []
-        for task in self.processing_tasks.values():
-            try:
-                if asyncio.isfuture(task) or inspect.isawaitable(task):
-                    try:
-                        task.cancel()
-                    except Exception:
-                        pass
-                    awaitables.append(task)
-                elif hasattr(task, "cancel"):
-                    try:
-                        task.cancel()
-                    except Exception:
-                        pass
-            except Exception:
-                continue
-
-        if awaitables:
-            await asyncio.gather(*awaitables, return_exceptions=True)
-
-        logger.info("MessageQueueService cleanup finalizado.")

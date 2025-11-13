@@ -40,7 +40,7 @@ async def test_mongo_save_and_get_history(setup_clients: Tuple[MongoDB, RedisQue
         mongo.save(
             phone_number=phone,
             message_data=message["message"],
-            msg_type=message["type_message"],
+            role=message["type_message"],
         )
 
         # Recupera histórico

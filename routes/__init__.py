@@ -13,7 +13,7 @@ async def create_app():
     configure_logging()
 
     logger.info("Iniciando configturação de rotas")
-    client_mongo.check_health()
+    await client_mongo.initialize_connection()
     await client_redis.check_health()
     app = Flask(__name__)
 
