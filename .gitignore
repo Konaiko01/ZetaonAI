@@ -10,7 +10,10 @@
 venv/
 .venv/
 env/
-
+clients/redis_client.py
+clients/mongo_client.py
+repositories/
+interfaces/repositories/
 # Arquivos de Configuração Sensíveis (Chaves e Tokens)
 #######################################################
 # NUNCA envie o arquivo .env, pois ele contém chaves de API.
