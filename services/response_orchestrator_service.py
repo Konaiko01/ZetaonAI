@@ -1,19 +1,17 @@
 import re
-import json
-import asyncio
-from utils.logger import logger, to_json_dump
+from utils.logger import logger
 from container.agents import AgentContainer
 from interfaces.clients.ia_interface import IAI
-from interfaces.clients.chat_interface import IChat # (Assumindo que você tem isso)
-from interfaces.agent.orchestrator_interface import IOrchestrator # (Interface atualizada)
-from interfaces.repositories.message_repository_interface import IMessageRepository # (Necessário para o histórico)
-from services.message_generation_service import MessageGenerationService # (Novo serviço)
+from interfaces.clients.chat_interface import IChat
+from interfaces.agent.orchestrator_interface import IOrchestrator 
+#from interfaces.repositories.message_repository_interface import IMessageRepository # 
+from services.message_generation_service import MessageGenerationService 
 from openai.types.chat import ChatCompletion
 
 class ResponseOrchestratorService(IOrchestrator):
-    # O System Prompt que você criou é excelente e será usado
-    model: str = "gpt-4-turbo" # Modelo atualizado
-    instructions: str = "" # (Seu _resolve_agents irá preencher isso)
+
+    model: str = "gpt-4-turbo" 
+    instructions: str = "" 
 
     system_prompt: dict = {
         "role": "system",
@@ -71,20 +69,17 @@ Exemplo 4:
 Usuário: "Qual a sua opinião sobre o mercado de IA no Brasil?"
 Sua Saída: agent_mentor""",
     }
-    tools: list = [] # O Orquestrador principal não usa tools, ele roteia
+    tools: list = [] 
 
     def __init__(
         self,
         agent_container: AgentContainer,
-        chat_client: IChat, 
-        message_repository: IMessageRepository,
+        #message_repository: IMessageRepository,
         ai_client: IAI, 
-        message_generation_service: MessageGenerationService 
+        message_generation_service: MessageGenerationService
     ) -> None:
         self.agent_container = agent_container
-
-        self.chat = chat_client
-        self.message_repository = message_repository
+        #self.message_repository = message_repository
         self.ai = ai_client
         self.message_generation_service = message_generation_service
         logger.info("ResponseOrchestratorService inicializado.")
@@ -129,7 +124,7 @@ Sua Saída: agent_mentor""",
             instructions=None 
         )
 
-        logger.info(f"[Orchestrator] Resposta de roteamento da IA: {to_json_dump(response_completion)}")
+        logger.info(f"[Orchestrator] Resposta de roteamento da IA: {(response_completion)}")
         
         agent_id_to_call = self._extract_text_from_completion(response_completion)
         agent_id_to_call = re.sub(r"[^a-zA-Z0-9_]", "", agent_id_to_call)
@@ -159,6 +154,7 @@ Sua Saída: agent_mentor""",
 
         if final_response_message:
             await self.message_generation_service.send_message(phone, final_response_message)
+            logger.info(f"[ResponseOrchetrator]{final_response_message}")
         else:
             logger.error("[Orchestrator] Nenhuma resposta final gerada para o usuário.")
 
