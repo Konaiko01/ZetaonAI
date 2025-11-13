@@ -13,7 +13,7 @@ class IAI(ABC):
         tools: list[dict] | None = None
     ) -> dict: ...
 
-    @abstractmethod
+    '''@abstractmethod
     def function_call_output(
         function_call_id: str,
         call_id: str,
@@ -21,4 +21,4 @@ class IAI(ABC):
         output: str,
         arguments: dict,
         model: str,
-    ): ...
+    ): ...'''

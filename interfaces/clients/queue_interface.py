@@ -1,17 +1,24 @@
-
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Any, Optional
 
 class IQueue(ABC):
 
     @abstractmethod
-    def add_message(self, key: str, payload: Dict[str, Any]) -> None: ...
+    async def push_to_queue(self, queue_key: str, message: Any) -> None:
+        ...
 
     @abstractmethod
-    def get_pending_messages(self, key: str) -> List[Dict[str, Any]]: ...
+    async def pop_from_queue(self, queue_key: str) -> Optional[str]:
+        ...
 
     @abstractmethod
-    def get_messages_batches(self) -> List[str]: ...
+    async def get_queue_fragments(self, queue_key: str) -> List[str]:
+        ...
 
     @abstractmethod
-    def delete(self, key: bytes | str) -> int: ...
+    async def delete_queue(self, queue_key: str) -> None:
+        ...
+    
+    @abstractmethod
+    async def close(self) -> None:
+        ...

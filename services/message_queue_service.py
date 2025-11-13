@@ -1,4 +1,4 @@
-import asyncio
+'''import asyncio
 from asyncio import Semaphore
 import logging
 from typing import Dict, Any, List, Optional
@@ -236,4 +236,4 @@ class MessageQueueService:
         if awaitables:
             await asyncio.gather(*awaitables, return_exceptions=True)
         
-        logger.info("MessageQueueService cleanup finalizado.")
+        logger.info("MessageQueueService cleanup finalizado.")'''

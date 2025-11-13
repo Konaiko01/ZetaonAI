@@ -1,9 +1,9 @@
-from .message_queue_service import MessageQueueService
+'''from .message_queue_service import MessageQueueService
 from typing import Dict, Any
 import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
-_mqs = MessageQueueService()
+#_mqs = MessageQueueService()
 
 
 async def process_message_async(phone_number: str, payload: Dict[str, Any]):
@@ -19,4 +19,4 @@ async def process_message_async(phone_number: str, payload: Dict[str, Any]):
 
 async def stop_services():
     """Para todos os serviços gracefuly"""
-    await _mqs.stop_monitoring()
+    await _mqs.stop_monitoring()'''

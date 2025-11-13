@@ -7,7 +7,7 @@ from typing import Any
 class MessageProcessController:
 #--------------------------------------------------------------------------------------------------------------------#
 
-    def __init__(self, 
+    def __init__(self,
                  message_service: MessageQueueService,
                  media_service: MediaProcessorService):
         self.media_service = media_service
