@@ -1,6 +1,13 @@
 import asyncio
 from asyncio import Semaphore
+from asyncio import Semaphore
 import logging
+from typing import Dict, Any, List, Optional
+import inspect
+from config import settings
+from services.response_orchestrator_service import ResponseOrchestratorService
+from infrastructure.mongoDB import MongoDB
+from interfaces.clients.queue_interface import IQueue
 from typing import Dict, Any, List, Optional
 import infrastructure
 from config import settings
@@ -9,7 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 class MessageQueueService:
-    def __init__(self):
+    def __init__(
+        self,
+        orchestrator: ResponseOrchestratorService,
+        message_repository: MongoDB,
+        redis_queue: IQueue,
+    ):
         self.processing_tasks: Dict[str, asyncio.Task[Any]] = {}
         self._shutting_down = False
         self._batch_monitor_task: Optional[asyncio.Task[Any]] = None
@@ -49,6 +61,7 @@ class MessageQueueService:
         """Adiciona mensagem ao Redis e agenda processamento"""
         if self._shutting_down:
             logger.warning("Serviço está desligando, mensagem ignorada")
+            logger.warning("Serviço está desligando, mensagem ignorada")
             return
 
         try:
@@ -57,6 +70,7 @@ class MessageQueueService:
             logger.debug(f"Mensagem adicionada para {phone_number}")
 
         except Exception as e:
+            logger.error(f"Erro ao adicionar mensagem para {phone_number}: {e}")
             logger.error(f"Erro ao adicionar mensagem para {phone_number}: {e}")
             raise e
 
@@ -168,9 +182,56 @@ class MessageQueueService:
             if len(messages) > 0:
                 await self._process_single_batch(phone_number, messages)
 
-                logger.info(f"Batch processado com sucesso para {phone_number}")
+                logger.info(
+                    f"Batch processado com sucesso para {phone_number} ({len(new_messages)} msgs)"
+                )
             else:
-                logger.info(f"Nenhuma mensagem pendente para {phone_number}")
+                logger.info(f"Nenhuma mensagem pendente para {redis_key} (batch vazio)")
+
+        except Exception as e:
+            logger.error(
+                f"Erro ao processar batch agendado para {redis_key}: {e}", exc_info=True
+            )
+
+    async def _process_single_batch(
+        self, phone_number: str, messages: List[Dict[str, Any]]
+    ):
+        """
+        --- LÓGICA IMPLEMENTADA ---
+        Processa um único lote de mensagens, buscando histórico e chamando o orquestrador.
+        """
+        logger.info(
+            f"Enviando lote de {phone_number} ({len(messages)} msgs) para o Orquestrador."
+        )
+        try:
+            history = await self.message_repository.get_history(phone_number, limit=10)
+
+            formatted_new_messages = [
+                {"role": "user", "content": msg.get("Mensagem", "")}
+                for msg in messages
+                if msg.get("Mensagem")
+            ]
+
+            if not formatted_new_messages:
+                logger.warning(
+                    f"Batch para {phone_number} não continha mensagens válidas."
+                )
+                return
+
+            full_context = history + formatted_new_messages
+
+            await self.orchestrator.execute(context=full_context, phone=phone_number)
+
+            try:
+                for msg_data in messages:
+                    await self.message_repository.save(
+                        phone_number, msg_data.get("Mensagem", ""), "user"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Falha ao salvar histórico do usuário {phone_number}: {e}",
+                    exc_info=True,
+                )
 
         except Exception as e:
             logger.error(f"Erro ao processar batch agendado para {phone_number}: {e}")
@@ -250,3 +311,28 @@ class MessageQueueService:
                 )
             except Exception as e:
                 logger.error(f"Erro no cleanup: {e}")
+
+    async def cleanup(self):
+        """Limpeza de recursos"""
+        await self.stop_monitoring()
+        awaitables: List[Any] = []
+        for task in self.processing_tasks.values():
+            try:
+                if asyncio.isfuture(task) or inspect.isawaitable(task):
+                    try:
+                        task.cancel()
+                    except Exception:
+                        pass
+                    awaitables.append(task)
+                elif hasattr(task, "cancel"):
+                    try:
+                        task.cancel()
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+
+        if awaitables:
+            await asyncio.gather(*awaitables, return_exceptions=True)
+
+        logger.info("MessageQueueService cleanup finalizado.")

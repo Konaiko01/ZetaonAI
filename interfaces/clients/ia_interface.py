@@ -6,13 +6,12 @@ class IAI(ABC):
     def transcribe_audio(self, audio_bytes: str) -> str: ...
 
     @abstractmethod
-    def create_model_response(
+    async def create_model_response(
         self,
         model: str,
-        input: str | list,
-        tools: list = [],
-        instructions: str | None = None,
-    ): ...
+        context: list[dict],
+        tools: list[dict] | None = None
+    ) -> dict: ...
 
     @abstractmethod
     def function_call_output(

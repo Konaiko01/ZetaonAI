@@ -4,7 +4,7 @@ import requests
 import json
 import os
 
-class ZAPICliet(IChat):
+class EvolutionClient(IChat):
     
     def __init__(self):
         self._Evo_URL = os.getenv("evoURL")
