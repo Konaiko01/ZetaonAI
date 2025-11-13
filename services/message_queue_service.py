@@ -83,12 +83,9 @@ class MessageQueueService:
                 await self._auto_stop_task
             except asyncio.CancelledError:
                 logger.debug("Timer de auto-stop anterior cancelado")
-            except Exception as e:
-                logger.debug(f"Exceção ao cancelar timer: {e}")
 
-        # Cria novo timer apenas se o monitoramento estiver ativo
-        if self._monitoring_active and not self._shutting_down:
-            self._auto_stop_task = asyncio.create_task(self._auto_stop_monitoring())
+        # Cria novo timer
+        self._auto_stop_task = asyncio.create_task(self._auto_stop_monitoring())
 
     async def _auto_stop_monitoring(self):
         """Agenda o encerramento automático do monitoramento após período de inatividade"""
@@ -199,47 +196,9 @@ class MessageQueueService:
     async def _process_single_batch(
         self, phone_number: str, messages: List[Dict[str, Any]]
     ):
-        """
-        --- LÓGICA IMPLEMENTADA ---
-        Processa um único lote de mensagens, buscando histórico e chamando o orquestrador.
-        """
-        logger.info(
-            f"Enviando lote de {phone_number} ({len(messages)} msgs) para o Orquestrador."
-        )
-        try:
-            history: List[Dict[str, Any]] = await self.message_repository.get_history(
-                phone_number
-            )
-
-            formatted_new_messages: List[Dict[str, Any]] = [
-                {"role": "user", "content": msg.get("Mensagem", "")}
-                for msg in messages
-                if msg.get("Mensagem")
-            ]
-
-            if not formatted_new_messages:
-                logger.warning(
-                    f"Batch para {phone_number} não continha mensagens válidas."
-                )
-                return
-
-            full_context: List[Dict[str, Any]] = history + formatted_new_messages
-
-            await self.orchestrator.execute(context=full_context, phone=phone_number)  # type: ignore
-
-            try:
-                for msg_data in messages:
-                    await self.message_repository.save(
-                        phone_number, msg_data.get("Mensagem", ""), "user"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"Falha ao salvar histórico do usuário {phone_number}: {e}",
-                    exc_info=True,
-                )
-
-        except Exception as e:
-            logger.error(f"Erro ao processar batch agendado para {phone_number}: {e}")
+        """Processa um único lote de mensagens"""
+        # TODO: Implementar a lógica real de processamento
+        logger.info(f"Processando {len(messages)} mensagens para {phone_number}")
 
     async def stop_monitoring(self):
         """Para o monitoramento com proteção contra RecursionError"""
@@ -263,17 +222,17 @@ class MessageQueueService:
                 except asyncio.TimeoutError:
                     logger.warning("Timeout ao parar batch monitor")
 
-            # # Para o auto-stop task
-            # if self._auto_stop_task and not self._auto_stop_task.done():
-            #     try:
-            #         self._auto_stop_task.cancel()
-            #         await asyncio.wait_for(
-            #             asyncio.shield(self._auto_stop_task), timeout=2.0
-            #         )
-            #     except asyncio.CancelledError:
-            #         pass
-            #     except asyncio.TimeoutError:
-            #         logger.warning("Timeout ao parar auto-stop task")
+            # Para o auto-stop task
+            if self._auto_stop_task and not self._auto_stop_task.done():
+                try:
+                    self._auto_stop_task.cancel()
+                    await asyncio.wait_for(
+                        asyncio.shield(self._auto_stop_task), timeout=2.0
+                    )
+                except asyncio.CancelledError:
+                    pass
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout ao parar auto-stop task")
 
         except Exception as e:
             logger.error(f"Erro durante parada do monitoramento: {e}")
