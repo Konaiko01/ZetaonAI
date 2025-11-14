@@ -1,3 +1,6 @@
+#
+# agents/agent_mentor.py (LIMPO)
+#
 from container.repositories import RepositoryContainer
 from interfaces.clients.ia_interface import IAI
 from container.clients import ClientContainer
@@ -56,7 +59,6 @@ class AgentMentor(BaseAgent):
 
 #--------------------------------------------------------------------------------------------------------------------#
 
-
     async def exec(self, context: List[Dict[str, Any]], phone: str) -> List[Dict[str, Any]]:
         logger.info(f"[{self.id}] Executando agente para {phone}.")
         messages = self._insert_system_input(context)         
@@ -88,6 +90,3 @@ class AgentMentor(BaseAgent):
             raise ValueError("Cliente IAI não encontrado no container.")
             
         return cls(ai_client=ai_client)
-
-#--------------------------------------------------------------------------------------------------------------------#
-

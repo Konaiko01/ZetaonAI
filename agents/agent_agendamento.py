@@ -1,3 +1,4 @@
+from interfaces.clients.calendar_inteface import ICalendar
 from container.repositories import RepositoryContainer
 from interfaces.clients.ia_interface import IAI
 from container.clients import ClientContainer
@@ -12,10 +13,10 @@ import json
 class AgentAgendamento(BaseAgent):
 #--------------------------------------------------------------------------------------------------------------------#
 
-    def __init__(self, ai_client: IAI, calendar_client: Any): # Substitua 'Any' pela sua ICalendar
+    def __init__(self, ai_client: IAI, calendar_client: ICalendar): 
         self._ai_client = ai_client
         self._calendar_client = calendar_client 
-        logger.info(f"[AgentAgendamento] Agente {self.id} inicializado.")
+        logger.info(f"[AgentAgendamento] Agente {self.id} inicializado com GCalendarClient.")
 
 #--------------------------------------------------------------------------------------------------------------------#
 
@@ -71,7 +72,7 @@ class AgentAgendamento(BaseAgent):
                 tools=self.tools,
             )
             response_message = response_completion.choices[0].message
-            messages.append(self._message_to_dict(response_message))
+            messages.append(self._message_to_dict(response_message))              
             while response_message.tool_calls:
                 logger.info(f"[{self.id}] Acionando ferramentas: {[tc.function.name for tc in response_message.tool_calls]}")
                 for tool_call in response_message.tool_calls:
@@ -84,8 +85,7 @@ class AgentAgendamento(BaseAgent):
                                 start_date=function_args.get("start_date"),
                                 end_date=function_args.get("end_date")
                             )
-                            tool_output = f"EVENTOS_SIMULADOS: 2 eventos encontrados entre {function_args.get('start_date')} e {function_args.get('end_date')}"
-                            logger.info(f"[{self.id}] Ferramenta 'get_calendar_events' chamada.")
+                            logger.info(f"[{self.id}] Ferramenta 'get_calendar_events' chamada.")                            
                         elif function_name == "create_calendar_event":
                             tool_output = await self._calendar_client.create_event(
                                 summary=function_args.get("summary"),
@@ -93,15 +93,13 @@ class AgentAgendamento(BaseAgent):
                                 end_time=function_args.get("end_time"),
                                 attendees=function_args.get("attendees", [])
                             )
-                            tool_output = f"EVENTO_CRIADO_SIMULADO: Evento '{function_args.get('summary')}' criado com sucesso."
-                            logger.info(f"[{self.id}] Ferramenta 'create_calendar_event' chamada.")
+                            logger.info(f"[{self.id}] Ferramenta 'create_calendar_event' chamada.")                            
                         else:
                             tool_output = f"Erro: Ferramenta '{function_name}' desconhecida."
-                            logger.warning(f"[{self.id}] Tentativa de chamar ferramenta desconhecida: {function_name}")
-                    
+                            logger.warning(f"[{self.id}] Tentativa de chamar ferramenta desconhecida: {function_name}")                        
                     except Exception as tool_e:
                         logger.error(f"[{self.id}] Erro ao executar ferramenta '{function_name}': {tool_e}", exc_info=True)
-                        tool_output = f"Erro ao executar a ferramenta {function_name}: {str(tool_e)}"
+                        tool_output = f"Erro ao executar a ferramenta {function_name}: {str(tool_e)}"                        
                     messages.append(
                         {
                             "role": "tool",
@@ -109,6 +107,7 @@ class AgentAgendamento(BaseAgent):
                             "content": json.dumps(tool_output),
                         }
                     )
+                
                 logger.info(f"[{self.id}] Enviando resultados das ferramentas de volta para a IA.")
                 response_completion: ChatCompletion = await self._ai_client.create_model_response(
                     model=self.model,
@@ -117,14 +116,14 @@ class AgentAgendamento(BaseAgent):
                 )
                 response_message = response_completion.choices[0].message
                 messages.append(self._message_to_dict(response_message))
+                
             final_content = response_message.content or "OK."
             logger.info(f"[{self.id}] Resposta final gerada: {final_content[:50]}...")
             return messages
-
+            
         except Exception as e:
             logger.error(f"[{self.id}] Erro ao executar: {e}", exc_info=True)
             return messages + [{"role": "assistant", "content": "Desculpe, o Agente de Agendamento encontrou um problema."}]
-
 
 #--------------------------------------------------------------------------------------------------------------------#
 
@@ -137,12 +136,10 @@ class AgentAgendamento(BaseAgent):
         ai_client = client_container.get_client("IAI")
         if not ai_client:
             raise ValueError("Cliente IAI não encontrado no container.")
-
         calendar_client = client_container.get_client("ICalendar") 
         if not calendar_client:
-            logger.warning("[AgentAgendamento] Cliente ICalendar não encontrado. O Agente de Agendamento usará MOCKS.")
-            pass 
-
+            raise ValueError("[AgentAgendamento] Cliente ICalendar não encontrado no container.")
+            
         return cls(ai_client=ai_client, calendar_client=calendar_client)
     
 #--------------------------------------------------------------------------------------------------------------------#
