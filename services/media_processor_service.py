@@ -1,7 +1,6 @@
 from clients.openai_client import OpenIAClient
 from utils.logger import logger
-from typing import List, Dict, Union, Any
-from services.crypto.wpp_decoder import Decoder
+from typing import Any
 
 #--------------------------------------------------------------------------------------------------------------------#
 class MediaProcessorService:
@@ -9,13 +8,10 @@ class MediaProcessorService:
 
     def __init__(self):
         self.client =  OpenIAClient() 
-        self.decodificador = Decoder()
 
 #--------------------------------------------------------------------------------------------------------------------#
 
-    async def verified_message(self, data: Dict[str, Any]) -> str | None:     
-        """Verifica o tipo de mensagem (texto, áudio) e retorna o conteúdo."""
-        # (Esta função está correta, permanece a mesma)
+    async def verified_message(self, data: dict[str, Any]) -> str | None:     
         try:  
             texto_simples = data.get('conversation') or \
                 data.get('extendedTextMessage', {}).get('text')
@@ -26,21 +22,16 @@ class MediaProcessorService:
                 logger.info("Mensagem identificada como ÁUDIO. Iniciando transcrição.")
                 return await self.transcricao_audio(None, None, None)
             else:            
-                logger.info("Mensagem não é texto ou mídia suportada.")
+                logger.info("[MediaProcessorService]Mensagem não é texto ou mídia suportada.")
                 return None
         except Exception as e:
-            logger.error(f"Erro ao verificar o tipo de mensagem: {e}", exc_info=True)
+            logger.error(f"[MediaProcessorService]Erro ao verificar o tipo de mensagem: {e}", exc_info=True)
             return None
         
 #--------------------------------------------------------------------------------------------------------------------#
     
     # --- FUNÇÃO CORRIGIDA ---
-    async def treated_message(self, data: Dict[str, Any])-> dict:
-        """
-        Processa o payload, extrai os dados relevantes e retorna um 
-        dicionário padronizado para o controlador.
-        """
-        
+    async def treated_message(self, data: dict[str, Any])-> dict:
         try:
             data_obj = data.get('data', {})
             if not data_obj:
@@ -61,48 +52,41 @@ class MediaProcessorService:
 
             if input_text is None:
                 return {"status": "ok", "message": "Não é uma mensagem de texto/mídia suportada."}
-
-            # --- LÓGICA DE EXTRAÇÃO DO @LID CORRIGIDA ---
             
             chat_id = key_obj.get('remoteJid', '') 
-            user_auth_id = "" # ID a ser usado para autorização
+            user_auth_id = "" 
+            phone_jid = ""    
             group_id = None 
 
             if chat_id.endswith('@g.us'):
-                # É um grupo: Pega o @lid do participant
-                user_auth_id = key_obj.get('participant', '') 
-                logger.info(f"Mensagem recebida do GRUPO {group_id}")
+                # É um grupo
+                group_id = chat_id
+                user_auth_id = key_obj.get('participant', '')  
+                phone_jid = key_obj.get('participantPn', '') 
+                logger.info(f"[MediaProcessorService]Mensagem recebida do GRUPO {group_id}")
             else:
-                # É DM: Pega o @lid do senderLid
+                # É DM
                 user_auth_id = key_obj.get('senderLid', '') 
-                logger.info("Mensagem recebida de DM.")
+                phone_jid = chat_id                        
+                logger.info("[MediaProcessorService]Mensagem recebida de DM.")
             
             if not user_auth_id:
-                # Fallback (se senderLid não existir na DM, usa o JID do telefone)
-                if not chat_id.endswith('@g.us'):
-                    user_auth_id = chat_id
-                    logger.warning(f"Não foi possível encontrar @lid (senderLid). Usando remoteJid ({user_auth_id}) como fallback.")
-                else:
-                    logger.error("Não foi possível identificar o remetente (@lid) no grupo.")
-                    return {"status": "ok", "message": "Não foi possível identificar o remetente."}
+                user_auth_id = phone_jid
+                logger.warning(f"[MediaProcessorService]Não foi possível encontrar @lid. Usando JID do telefone ({phone_jid}) como AuthId.")
+            if not phone_jid:
+                phone_jid = user_auth_id
+                logger.warning(f"[MediaProcessorService]Não foi possível encontrar JID do telefone. Usando AuthId ({user_auth_id}) como JID.")
             
-            # --- FIM DA CORREÇÃO ---
+            # --- FIM DA LÓGICA ---
 
-            logger.info(f"ID de Autenticação: {user_auth_id} (Grupo: {group_id})")
+            logger.info(f"ID Telefone: {phone_jid} | ID Auth: {user_auth_id} (Grupo: {group_id})")
             return {
                 'Mensagem': input_text, 
-                'Numero': user_auth_id, # <-- Este é o ID que será validado
+                'Numero': phone_jid,    
+                'AuthId': user_auth_id,  
                 'GroupId': group_id 
             }
             
         except Exception as e:
-            logger.error(f"Erro crítico ao tratar a mensagem: {e}", exc_info=True)
+            logger.error(f"[MediaProcessorService]Erro crítico ao tratar a mensagem: {e}", exc_info=True)
             return {"status": "error", "message": f"Erro interno: {e}"}
-
-#--------------------------------------------------------------------------------------------------------------------#
-
-    async def transcricao_audio(self, url_audio: str, chave_midia: str, mime_type: str) -> str | None: 
-        logger.warning("transcricao_audio AINDA NÃO IMPLEMENTADO.")
-        return "[Transcrição de Áudio Simulada]"
-    
-# ... (restante do arquivo)
