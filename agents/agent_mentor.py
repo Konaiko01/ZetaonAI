@@ -1,30 +1,38 @@
-
-import logging
-from typing import List, Dict, Any, Optional
-from openai.types.chat import ChatCompletion
-from agents.agent_base import BaseAgent # <-- Importa a BaseAgent
+from container.repositories import RepositoryContainer
 from interfaces.clients.ia_interface import IAI
 from container.clients import ClientContainer
-from container.repositories import RepositoryContainer
+from typing import List, Dict, Any, Optional
+from openai.types.chat import ChatCompletion
+from agents.agent_base import BaseAgent
 from utils.logger import logger
 
+#--------------------------------------------------------------------------------------------------------------------#
 class AgentMentor(BaseAgent): 
+#--------------------------------------------------------------------------------------------------------------------#
 
     def __init__(self, ai_client: IAI):
         self._ai_client = ai_client
         logger.info(f"Agente {self.id} inicializado.")
 
+#--------------------------------------------------------------------------------------------------------------------#
+
     @property
     def id(self) -> str:
         return "agent_mentor"
-    
+
+#--------------------------------------------------------------------------------------------------------------------#
+
     @property
     def description(self) -> str:
         return "Especialista em responder perguntas gerais, dar conselhos, mentorias e conversas que não exigem ferramentas externas (No external access)."
 
+#--------------------------------------------------------------------------------------------------------------------#
+
     @property
     def model(self) -> str:
         return "gpt-4.1-mini" 
+
+#--------------------------------------------------------------------------------------------------------------------#
 
     @property
     def instructions(self) -> str:
@@ -40,25 +48,25 @@ class AgentMentor(BaseAgent):
         - Seja uma IA prestativa e conversacional.
         """
 
+#--------------------------------------------------------------------------------------------------------------------#
+
     @property
     def tools(self) -> Optional[List[Dict[str, Any]]]:
         return None
 
+#--------------------------------------------------------------------------------------------------------------------#
+
+
     async def exec(self, context: List[Dict[str, Any]], phone: str) -> List[Dict[str, Any]]:
         logger.info(f"[{self.id}] Executando agente para {phone}.")
-        
-        messages = self._insert_system_input(context) 
-        
+        messages = self._insert_system_input(context)         
         try:
             response_completion: ChatCompletion = await self._ai_client.create_model_response(
                 model=self.model,
                 input_messages=messages,
                 tools=self.tools,
-                instructions=None
             )
-
-            final_content = self._extract_text_from_completion(response_completion)
-            
+            final_content = self._extract_text_from_completion(response_completion)            
             logger.info(f"[{self.id}] Resposta gerada: {final_content[:50]}...")
             output_messages = messages + [{"role": "assistant", "content": final_content}]
             return output_messages
@@ -66,6 +74,8 @@ class AgentMentor(BaseAgent):
         except Exception as e:
             logger.error(f"[{self.id}] Erro ao executar: {e}", exc_info=True)
             return messages + [{"role": "assistant", "content": "Desculpe, encontrei um problema ao processar sua solicitação."}]
+        
+#--------------------------------------------------------------------------------------------------------------------#
 
     @classmethod
     def factory(
@@ -78,3 +88,6 @@ class AgentMentor(BaseAgent):
             raise ValueError("Cliente IAI não encontrado no container.")
             
         return cls(ai_client=ai_client)
+
+#--------------------------------------------------------------------------------------------------------------------#
+

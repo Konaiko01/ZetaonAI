@@ -1,13 +1,14 @@
-import os
-import logging
 from interfaces.clients.ia_interface import IAI
-from openai import AsyncOpenAI 
 from openai.types.audio import Transcription
 from openai.types.chat import ChatCompletion
+from typing import Any, Optional
+from openai import AsyncOpenAI 
 from utils.logger import logger
-from typing import List, Dict, Any, Optional
+import os
 
+#--------------------------------------------------------------------------------------------------------------------#
 class OpenIAClient(IAI):
+#--------------------------------------------------------------------------------------------------------------------#
 
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
@@ -18,6 +19,8 @@ class OpenIAClient(IAI):
         self.client = AsyncOpenAI(api_key=api_key) 
         self.max_output_tokens = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "2048")) 
         logger.info("AsyncOpenAIClient (OpenIAClient) inicializado.") 
+
+#--------------------------------------------------------------------------------------------------------------------#
 
     async def transcribe_audio(self, audio_file_path: str) -> str:
         try:
@@ -32,28 +35,30 @@ class OpenIAClient(IAI):
             logger.error(f"Erro ao transcrever áudio: {e}", exc_info=True) 
             return ""
 
+#--------------------------------------------------------------------------------------------------------------------#
+
     async def create_model_response(
         self, 
         model: str, 
-        input_messages: List[Dict[str, Any]], 
-        tools: Optional[List[Dict[str, Any]]] = None, 
-        instructions: Optional[str] = None 
+        input_messages: list[dict[str, Any]], 
+        tools: Optional[list[dict[str, Any]]] = None,
+        **kwargs
         ) -> ChatCompletion: 
-
         try:
-            kwargs = {
+            api_kwargs = {
                 "model": model,
                 "messages": input_messages,
                 "temperature": 0.5,
                 "max_tokens": self.max_output_tokens,
                 "top_p": 1,
             }
-            
             if tools:
-                kwargs["tools"] = tools
-            
-            response: ChatCompletion = await self.client.chat.completions.create(**kwargs) 
-            
+                api_kwargs["tools"] = tools
+
+            if kwargs:
+                api_kwargs.update(kwargs)
+
+            response: ChatCompletion = await self.client.chat.completions.create(**api_kwargs) 
             logger.info("Resposta da OpenAI (ChatCompletion) recebida com sucesso.") 
             return response
             

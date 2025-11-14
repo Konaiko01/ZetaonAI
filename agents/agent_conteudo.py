@@ -1,54 +1,40 @@
-import logging
-import json
 from typing import List, Dict, Any, Optional
-from openai.types.chat import ChatCompletion, ChatCompletionMessage
+from openai.types.chat import ChatCompletion
 from agents.agent_base import BaseAgent
 from interfaces.clients.ia_interface import IAI
-# from interfaces.clients.websearch_interface import IWebSearch
 from container.clients import ClientContainer
 from container.repositories import RepositoryContainer
 from utils.logger import logger
+import json
 
-
-tools_definitions = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_web",
-            "description": "Busca informações na web usando um motor de busca.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "A query de busca (ex: 'preço do bitcoin hoje').",
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-    }
-]
-
-
+#--------------------------------------------------------------------------------------------------------------------#
 class AgentConteudo(BaseAgent):
+#--------------------------------------------------------------------------------------------------------------------#
 
     def __init__(self, ai_client: IAI, websearch_client: Any): 
         self._ai_client = ai_client
         self._websearch_client = websearch_client 
         logger.info(f"Agente {self.id} inicializado.")
 
+#--------------------------------------------------------------------------------------------------------------------#
+
     @property
     def id(self) -> str:
         return "agent_conteudo"
     
+#--------------------------------------------------------------------------------------------------------------------#
+
     @property
     def description(self) -> str:
         return "Especialista em criação de conteúdo, pesquisa, redação e acesso a ferramentas de busca (Web access)."
 
+#--------------------------------------------------------------------------------------------------------------------#
+
     @property
     def model(self) -> str:
         return "gpt-4.1-mini"
+
+#--------------------------------------------------------------------------------------------------------------------#
 
     @property
     def instructions(self) -> str:
@@ -64,10 +50,15 @@ class AgentConteudo(BaseAgent):
         - Responda diretamente ao usuário, sintetizando os resultados da busca em uma resposta coesa. Não apenas "aqui está o que encontrei".
         - Se a tarefa for puramente criativa (ex: "escreva um poema"), você não precisa usar ferramentas.
         """
+    
+#--------------------------------------------------------------------------------------------------------------------#
 
     @property
     def tools(self) -> Optional[List[Dict[str, Any]]]:
         return tools_definitions
+    
+#--------------------------------------------------------------------------------------------------------------------#
+
 
     async def exec(self, context: List[Dict[str, Any]], phone: str) -> List[Dict[str, Any]]:
         logger.info(f"[{self.id}] Executando agente para {phone}.")
@@ -79,7 +70,6 @@ class AgentConteudo(BaseAgent):
                 model=self.model,
                 input_messages=messages,
                 tools=self.tools,
-                instructions=None
             )
             response_message = response_completion.choices[0].message
             messages.append(self._message_to_dict(response_message))
@@ -94,8 +84,8 @@ class AgentConteudo(BaseAgent):
                     tool_output = ""
                     try:
                         if function_name == "search_web":
-                            # query = function_args.get("query")
-                            # tool_output = await self._websearch_client.search(query)
+                            query = function_args.get("query")
+                            tool_output = await self._websearch_client.search(query)
                             tool_output = f"RESULTADOS_SIMULADOS_DA_WEB sobre '{function_args.get('query')}': A IA é um campo em crescimento..."
                             logger.info(f"[{self.id}] Ferramenta 'search_web' chamada com query: {function_args.get('query')}")
                         
@@ -120,7 +110,6 @@ class AgentConteudo(BaseAgent):
                     model=self.model,
                     input_messages=messages,
                     tools=self.tools,
-                    instructions=None
                 )
                 response_message = response_completion.choices[0].message
                 messages.append(self._message_to_dict(response_message))
@@ -132,6 +121,9 @@ class AgentConteudo(BaseAgent):
         except Exception as e:
             logger.error(f"[{self.id}] Erro ao executar: {e}", exc_info=True)
             return messages + [{"role": "assistant", "content": "Desculpe, o Agente de Conteúdo encontrou um problema."}]
+        
+
+#--------------------------------------------------------------------------------------------------------------------#
 
     @classmethod
     def factory(
@@ -149,3 +141,25 @@ class AgentConteudo(BaseAgent):
             pass
 
         return cls(ai_client=ai_client, websearch_client=websearch_client)
+
+#--------------------------------------------------------------------------------------------------------------------#
+
+tools_definitions = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_web",
+            "description": "Busca informações na web usando um motor de busca.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "A query de busca (ex: 'preço do bitcoin hoje').",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    }
+]
