@@ -2,6 +2,7 @@ from services.response_orchestrator_service import ResponseOrchestratorService
 from controllers.message_process_controller import MessageProcessController
 from services.group_autorization_service import GroupAuthorizationService 
 from services.message_send_service import MessageSendService
+from clients.calendar_client import GCalendarClient
 from services.media_processor_service import MediaProcessorService
 from services.message_queue_service import MessageQueueService
 from container.repositories import RepositoryContainer 
@@ -24,11 +25,30 @@ class AppContainer:
 
     def __init__(self):
         logger.info("[Main]Iniciando injeção de dependência...")
-
         self.client_container = ClientContainer()
-
+        db_client = self.client_container.get_client("MongoDBClient")
+        if not db_client:
+            raise RuntimeError("Falha ao inicializar o MongoDBClient.")
+        try:
+            calendar_id = os.getenv("GCALENDAR_ID")
+            if not calendar_id:
+                raise ValueError("GCALENDAR_ID não encontrado no .env.")
+            logger.info("[Main] Buscando credenciais do Google Calendar no MongoDB...")
+            creds_doc = db_client.find_one_sync("config", {"_id": "google_creds"})         
+            if not creds_doc or not creds_doc.get("value"):
+                 raise FileNotFoundError("Credenciais 'google_creds' não encontradas no MongoDB.")
+            
+            service_account_info = creds_doc.get("value")
+            calendar_client = GCalendarClient(
+                service_account_info=service_account_info,
+                calendar_id=calendar_id
+            )
+            self.client_container.register_client("ICalendar", calendar_client)  
+        except Exception as e:
+            logger.error(f"[Main] Falha ao carregar GCalendarClient: {e}")
+            logger.warning("[Main] O AgentAgendamento falhará ou usará MOCKS.")
         self.repo_container = RepositoryContainer(
-            db_client=self.client_container.get_client("MongoDBClient"),
+            db_client=db_client,
             cache_client=self.client_container.get_client("RedisClient")
         )
 

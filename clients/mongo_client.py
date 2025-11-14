@@ -3,6 +3,7 @@ from interfaces.clients.db_interface import IDB
 from typing import Any, Optional
 from utils.logger import logger
 import os
+import pymongo
 
 #--------------------------------------------------------------------------------------------------------------------#
 class MongoDBClient(IDB):
@@ -15,18 +16,21 @@ class MongoDBClient(IDB):
             raise ValueError("Conexão com MongoDB 'mUri' não foi configurada.")
         self.app: AsyncIOMotorClient = AsyncIOMotorClient(connection)
         self.database = self.app["client_context"]
-        logger.info("[MongoDBClient] Cliente (assíncrono) inicializado.")
+        self.sync_client: pymongo.MongoClient = pymongo.MongoClient(connection)
+        self.sync_database = self.sync_client["client_context"]
+        
+        logger.info("[MongoDBClient] Clientes (assíncrono e síncrono) inicializados.")
 
 #--------------------------------------------------------------------------------------------------------------------#
 
     async def find_one(self, collection_key: str, filter: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Busca um documento (ASSÍNCRONO)."""
         try:
             collect = self.database[collection_key]
             document = await collect.find_one(filter)
             return document
-        
         except Exception as e:
-            logger.error(f"[MongoDBClient] Erro ao buscar em '{collection_key}': {e}", exc_info=True)
+            logger.error(f"[MongoDBClient] Erro ao buscar (async) em '{collection_key}': {e}", exc_info=True)
             return None
 
 #--------------------------------------------------------------------------------------------------------------------#
@@ -59,4 +63,16 @@ class MongoDBClient(IDB):
             logger.error(f"[MongoDBClient] Erro ao atualizar/upsert em '{collection_key}': {e}", exc_info=True)
             return None
         
+#--------------------------------------------------------------------------------------------------------------------#
+
+    def find_one_sync(self, collection_key: str, filter: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Busca um documento (SÍNCRONO). Usar APENAS na inicialização."""
+        logger.info(f"[MongoDBClient] Buscando (sync) em '{collection_key}'...")
+        try:
+            collect = self.sync_database[collection_key]
+            document = collect.find_one(filter)
+            return document
+        except Exception as e:
+            logger.error(f"[MongoDBClient] Erro ao buscar (sync) em '{collection_key}': {e}", exc_info=True)
+            return None
     
