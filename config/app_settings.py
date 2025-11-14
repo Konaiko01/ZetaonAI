@@ -25,6 +25,12 @@ class AppSettings(BaseSettings):
     # Números autorizados a usar o bot
     authorized_numbers: Union[List[str], str] = []
 
+    # Grupos autorizados para usar o agent
+    authorized_group_ids: Union[List[str], str] = []
+
+    # Cache de membros do grupo em minutos
+    group_cache_ttl_minutes: int = 60
+
     @field_validator("authorized_numbers", mode="before")
     def _parse_csv_to_list(cls, value: str) -> List[str]:
         # Pode vir como lista (já parseada) ou como string CSV; trate ambos os casos
@@ -33,3 +39,12 @@ class AppSettings(BaseSettings):
         if value is None:
             return []
         return str(value).split(",")
+
+    @field_validator("authorized_group_ids", mode="before")
+    def _parse_group_ids(cls, value: str) -> List[str]:
+        # Pode vir como lista (já parseada) ou como string CSV; trate ambos os casos
+        if isinstance(value, list):
+            return value
+        if value is None:
+            return []
+        return [g.strip() for g in str(value).split(",") if g.strip()]
