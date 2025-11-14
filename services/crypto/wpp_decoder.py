@@ -2,17 +2,15 @@ import io
 import hashlib
 import hmac
 import base64
-import logging
-from typing import Optional, Dict, Union
-logger = logging.getLogger(__name__)
+from typing import Optional
+from utils.logger import logger
+from Crypto.Cipher import AES
 
-#veficar necessidade de manter a classe inteira para descriptografia
 #--------------------------------------------------------------------------------------------------------------------#
 class Decoder:
 #--------------------------------------------------------------------------------------------------------------------#
 
-
-    _APP_INFO: Dict[str, bytes] = {
+    _APP_INFO: dict[str, bytes] = {
         "image": b"WhatsApp Image Keys",
         "video": b"WhatsApp Video Keys",
         "audio": b"WhatsApp Audio Keys",
@@ -20,16 +18,14 @@ class Decoder:
         "audio/ogg": b"WhatsApp Audio Keys",
     }
     
-    _EXTENSAO: Dict[str, str] = {
+    _EXTENSAO: dict[str, str] = {
         "image": "jpg",
         "video": "mp4",
         "audio": "ogg",
         "document": "bin",
     }
 
-
 #--------------------------------------------------------------------------------------------------------------------#
-
 
     @staticmethod
     def _derivar_chave_hkdf(chave: bytes, tamanho: int, info_app: bytes = b"") -> bytes:
@@ -47,37 +43,30 @@ class Decoder:
             fluxo_chave += bloco_chave
         return fluxo_chave[:tamanho]
     
-
 #--------------------------------------------------------------------------------------------------------------------#
-
 
     @staticmethod
     def _remover_padding_aes(dados: bytes) -> bytes:
         tamanho_padding = dados[len(dados) - 1]
         return dados[:-tamanho_padding]
     
-
 #--------------------------------------------------------------------------------------------------------------------#
-
 
     @staticmethod
     def _descriptografar_aes(chave: bytes, texto_cifrado: bytes, iv: Optional[bytes]) -> bytes:
         try:
-            cipher = AES.new(chave, AES.MODE_CBC, iv)
+            cipher = AES.new(chave, AES.MODE_CBC, iv) 
             texto_plano: bytes = cipher.decrypt(texto_cifrado)
             return Decoder._remover_padding_aes(texto_plano)
         except Exception as e:
             raise ValueError(f"Erro na descriptografia AES: {e}")
         
-
 #--------------------------------------------------------------------------------------------------------------------#
-
 
     def decodificar_buffer(self, 
                            buffer_criptografado: io.BytesIO, 
                            chave_midia_base64: str, 
                            mime_type: str) -> io.BytesIO:
-        
         try:
             dados_midia: bytes = buffer_criptografado.getvalue()
             chave_midia_bytes: bytes = base64.b64decode(chave_midia_base64)
@@ -85,10 +74,8 @@ class Decoder:
             info_app = self._APP_INFO.get(mime_type, self._APP_INFO["audio"])
             chave_expandida: bytes = self._derivar_chave_hkdf(chave_midia_bytes, 112, info_app)
             
-            # Remove os 10 bytes de autenticação do final do arquivo.
             texto_cifrado: bytes = dados_midia[:-10]
             
-            # Key: [16:48] (32 bytes); IV: [:16] (16 bytes)
             dados_decodificados: bytes = self._descriptografar_aes(
                 chave=chave_expandida[16:48], 
                 texto_cifrado=texto_cifrado, 
