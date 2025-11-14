@@ -10,20 +10,10 @@
 venv/
 .venv/
 env/
-clients/redis_client.py
-clients/mongo_client.py
-repositories/
-interfaces/repositories/
 # Arquivos de Configuração Sensíveis (Chaves e Tokens)
 #######################################################
 # NUNCA envie o arquivo .env, pois ele contém chaves de API.
 .env
-
-# Arquivos de Lógica de Roteamento/Personalização
-##################################################
-# Exclui o arquivo que contém a lógica de roteamento/instruções,
-# pois o conteúdo das instruções vem do .env e o arquivo pode ser gerado/variável.
-negocio/servico/a_instrucoes.py
 
 # Arquivos de Compilação e Cache do Python
 ###########################################
