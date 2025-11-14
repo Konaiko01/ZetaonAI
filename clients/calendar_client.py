@@ -1,15 +1,18 @@
-import os.path
-import asyncio
-from typing import List, Dict, Any, Optional
-from utils.logger import logger
 from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
+from typing import Any, Optional
+from utils.logger import logger
+import os.path
+import asyncio
 
+#--------------------------------------------------------------------------------------------------------------------#
 class GCalendarClient:
-    
-    # O Agente de Agendamento precisa de permissão de escrita
+#--------------------------------------------------------------------------------------------------------------------#
+
     SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+#--------------------------------------------------------------------------------------------------------------------#
 
     def __init__(self, json_keyfile_path: str):
         if not os.path.exists(json_keyfile_path):
@@ -20,19 +23,20 @@ class GCalendarClient:
             self._creds = Credentials.from_service_account_file(
                 json_keyfile_path, scopes=self.SCOPES
             )
-            # Constrói o serviço (síncrono)
             self._service = build("calendar", "v3", credentials=self._creds)
             logger.info("[GCalendarClient] Cliente (Conta de Serviço) inicializado.")
         except Exception as e:
             logger.error(f"[GCalendarClient] Falha ao carregar credenciais: {e}", exc_info=True)
             raise
 
+#--------------------------------------------------------------------------------------------------------------------#
+
     async def _run_blocking_io(self, func, *args, **kwargs):
-        """Executa uma função síncrona (blocking) em um thread separado."""
         return await asyncio.to_thread(func, *args, **kwargs)
 
-    async def get_events(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """Busca eventos na agenda (assíncrono)."""
+#--------------------------------------------------------------------------------------------------------------------#
+
+    async def get_events(self, start_date: str, end_date: str) -> list[dict[str, Any]]:
         logger.info(f"[GCalendarClient] Buscando eventos de {start_date} até {end_date}")
         try:
             events_result = await self._run_blocking_io(
@@ -55,17 +59,16 @@ class GCalendarClient:
             logger.error(f"[GCalendarClient] Erro inesperado em get_events: {e}", exc_info=True)
             return []
 
-    async def create_event(self, summary: str, start_time: str, end_time: str, attendees: List[str]) -> Optional[Dict[str, Any]]:
-        """Cria um novo evento (assíncrono)."""
+#--------------------------------------------------------------------------------------------------------------------#
+
+    async def create_event(self, summary: str, start_time: str, end_time: str, attendees: list[str]) -> Optional[dict[str, Any]]:
         logger.info(f"[GCalendarClient] Criando evento: '{summary}'")
-        
         event_body = {
             'summary': summary,
             'start': {'dateTime': start_time, 'timeZone': 'America/Sao_Paulo'},
             'end': {'dateTime': end_time, 'timeZone': 'America/Sao_Paulo'},
             'attendees': [{'email': email} for email in attendees],
         }
-
         try:
             created_event = await self._run_blocking_io(
                 self._service.events().insert(
