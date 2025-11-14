@@ -21,14 +21,12 @@ class RedisClient(IQueue):
             host=host, 
             port=port, 
             password=password, 
-            decode_responses=True # Decodifica respostas de bytes para str
+            decode_responses=True 
         )
         logger.info("[RedisClient] Cliente (assíncrono) inicializado.")
 
     async def push_to_queue(self, queue_key: str, message: Any):
-        """Adiciona uma mensagem (fragmento) ao final de uma fila (lista)."""
         try:
-            # Serializa a mensagem se for um dict/list
             if isinstance(message, (dict, list)):
                 message = json.dumps(message)
                 
@@ -38,7 +36,6 @@ class RedisClient(IQueue):
             logger.error(f"[RedisClient] Erro ao adicionar à fila '{queue_key}': {e}", exc_info=True)
 
     async def pop_from_queue(self, queue_key: str) -> Optional[str]:
-        """Remove e retorna a mensagem mais antiga da fila (lista)."""
         try:
             # RPOP remove e retorna o último elemento (comportamento de fila com LPUSH)
             message = await self.app.rpop(queue_key)
@@ -51,7 +48,6 @@ class RedisClient(IQueue):
             return None
             
     async def get_queue_fragments(self, queue_key: str) -> List[str]:
-        """Pega todos os fragmentos de uma fila (sem removê-los)."""
         try:
             # LRANGE 0 -1 pega todos os elementos da lista
             fragments = await self.app.lrange(queue_key, 0, -1)
@@ -61,13 +57,11 @@ class RedisClient(IQueue):
             return []
 
     async def delete_queue(self, queue_key: str):
-        """Deleta uma fila (chave) inteira."""
         try:
             await self.app.delete(queue_key)
             logger.info(f"[RedisClient] Fila '{queue_key}' deletada.")
         except Exception as e:
             logger.error(f"[RedisClient] Erro ao deletar fila '{queue_key}': {e}", exc_info=True)
             
-    # Lembre-se de fechar a conexão
     async def close(self):
         await self.app.aclose()

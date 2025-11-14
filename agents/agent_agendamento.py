@@ -2,7 +2,7 @@ import logging
 import json
 from typing import List, Dict, Any, Optional
 from openai.types.chat import ChatCompletion, ChatCompletionMessage
-from interfaces.agent.agent_interface import IAgent
+from agents.agent_base import BaseAgent # <-- Importa a BaseAgent
 from interfaces.clients.ia_interface import IAI
 # from interfaces.clients.calendar_interface import ICalendar 
 from container.clients import ClientContainer
@@ -61,7 +61,7 @@ tools_definitions = [
 ]
 
 
-class AgentAgendamento(IAgent):
+class AgentAgendamento(BaseAgent):
 
     def __init__(self, ai_client: IAI, calendar_client: Any): # Substitua 'Any' pela sua ICalendar
         self._ai_client = ai_client
@@ -176,27 +176,6 @@ class AgentAgendamento(IAgent):
         except Exception as e:
             logger.error(f"[{self.id}] Erro ao executar: {e}", exc_info=True)
             return messages + [{"role": "assistant", "content": "Desculpe, o Agente de Agendamento encontrou um problema."}]
-
-    def _insert_system_input(self, input_list: list) -> list:
-        filtered_list = [msg for msg in input_list if msg.get("role") != "system"]
-        system_prompt = {"role": "system", "content": self.instructions}
-        filtered_list.insert(0, system_prompt)
-        return filtered_list
-
-    def _message_to_dict(self, message: ChatCompletionMessage) -> Dict[str, Any]:
-        msg_dict = {"role": "assistant", "content": message.content or ""}
-        if message.tool_calls:
-            msg_dict["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": tc.type,
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in message.tool_calls
-            ]
-        if not msg_dict["content"]:
-            del msg_dict["content"]
-        return msg_dict
 
 
     @classmethod

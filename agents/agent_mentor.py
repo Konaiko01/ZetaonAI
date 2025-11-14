@@ -1,15 +1,14 @@
+
 import logging
 from typing import List, Dict, Any, Optional
 from openai.types.chat import ChatCompletion
-
-from interfaces.agent.agent_interface import IAgent
+from agents.agent_base import BaseAgent # <-- Importa a BaseAgent
 from interfaces.clients.ia_interface import IAI
 from container.clients import ClientContainer
 from container.repositories import RepositoryContainer
 from utils.logger import logger
 
-
-class AgentMentor(IAgent):
+class AgentMentor(BaseAgent): 
 
     def __init__(self, ai_client: IAI):
         self._ai_client = ai_client
@@ -48,7 +47,7 @@ class AgentMentor(IAgent):
     async def exec(self, context: List[Dict[str, Any]], phone: str) -> List[Dict[str, Any]]:
         logger.info(f"[{self.id}] Executando agente para {phone}.")
         
-        messages = self._insert_system_input(context)
+        messages = self._insert_system_input(context) 
         
         try:
             response_completion: ChatCompletion = await self._ai_client.create_model_response(
@@ -58,7 +57,6 @@ class AgentMentor(IAgent):
                 instructions=None
             )
 
-          
             final_content = self._extract_text_from_completion(response_completion)
             
             logger.info(f"[{self.id}] Resposta gerada: {final_content[:50]}...")
@@ -69,28 +67,13 @@ class AgentMentor(IAgent):
             logger.error(f"[{self.id}] Erro ao executar: {e}", exc_info=True)
             return messages + [{"role": "assistant", "content": "Desculpe, encontrei um problema ao processar sua solicitação."}]
 
-    def _insert_system_input(self, input_list: list) -> list:
-        filtered_list = [msg for msg in input_list if msg.get("role") != "system"]
-        
-        system_prompt = {"role": "system", "content": self.instructions}
-        filtered_list.insert(0, system_prompt)
-        return filtered_list
-
-    def _extract_text_from_completion(self, response: ChatCompletion) -> str:
-        try:
-            content = response.choices[0].message.content
-            return content.strip() if content else ""
-        except (AttributeError, IndexError, TypeError):
-            logger.warning(f"[{self.id}] Não foi possível extrair conteúdo da resposta da IA.")
-            return ""
-
     @classmethod
     def factory(
         cls,
         client_container: ClientContainer,
         repository_container: RepositoryContainer,
     ) -> "AgentMentor":
-        ai_client = client_container.get_client("IAI") # Assumindo que seu container tem um get_client
+        ai_client = client_container.get_client("IAI") 
         if not ai_client:
             raise ValueError("Cliente IAI não encontrado no container.")
             

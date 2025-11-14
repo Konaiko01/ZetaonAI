@@ -1,71 +1,83 @@
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
+import os.path
+import asyncio
+from typing import List, Dict, Any, Optional
+from utils.logger import logger
+from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
-import datetime
-import os.path
 
-class GCalendarClient():
+class GCalendarClient:
+    
+    # O Agente de Agendamento precisa de permissão de escrita
+    SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-    '''
-    Api configurada, conectou corretamente, mas usando a credencia baixada
-    adptar para receber a credencial do Db ou .env, e verificar qual os
-    EndPoints que serão necessario para logica de negocio da aplicação
-    '''
-    SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
-
-    def main(self):
-
-        creds = None
-
-        if os.path.exists("token.json"):
-            creds = Credentials.from_authorized_user_file("token.json", self.SCOPES)
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                "credentials.json", self.SCOPES
-            )
-            creds = flow.run_local_server(port=0)
+    def __init__(self, json_keyfile_path: str):
+        if not os.path.exists(json_keyfile_path):
+            logger.error(f"[GCalendarClient] Arquivo de credenciais não encontrado: {json_keyfile_path}")
+            raise FileNotFoundError(f"Arquivo de conta de serviço não encontrado: {json_keyfile_path}")
             
-            with open("token.json", "w") as token:
-                token.write(creds.to_json())
-                
-
         try:
-            service = build("calendar", "v3", credentials=creds)
+            self._creds = Credentials.from_service_account_file(
+                json_keyfile_path, scopes=self.SCOPES
+            )
+            # Constrói o serviço (síncrono)
+            self._service = build("calendar", "v3", credentials=self._creds)
+            logger.info("[GCalendarClient] Cliente (Conta de Serviço) inicializado.")
+        except Exception as e:
+            logger.error(f"[GCalendarClient] Falha ao carregar credenciais: {e}", exc_info=True)
+            raise
 
-            
-            now = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
-            print("Getting the upcoming 10 events")
-            events_result = (
-                service.events()
-                .list(
+    async def _run_blocking_io(self, func, *args, **kwargs):
+        """Executa uma função síncrona (blocking) em um thread separado."""
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+    async def get_events(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Busca eventos na agenda (assíncrono)."""
+        logger.info(f"[GCalendarClient] Buscando eventos de {start_date} até {end_date}")
+        try:
+            events_result = await self._run_blocking_io(
+                self._service.events().list(
                     calendarId="primary",
-                    timeMin=now,
-                    maxResults=10,
+                    timeMin=start_date,
+                    timeMax=end_date,
+                    maxResults=50,
                     singleEvents=True,
                     orderBy="startTime",
-                )
-                .execute()
+                ).execute
             )
             events = events_result.get("items", [])
-
-            if not events:
-                print("No upcoming events found.")
-                return
-
-            for event in events:
-                start = event["start"].get("dateTime", event["start"].get("date"))
-                print(start, event)
-
+            logger.info(f"[GCalendarClient] {len(events)} eventos encontrados.")
+            return events
         except HttpError as error:
-            print(f"An error occurred: {error}")
+            logger.error(f"[GCalendarClient] Erro ao buscar eventos: {error}", exc_info=True)
+            return []
+        except Exception as e:
+            logger.error(f"[GCalendarClient] Erro inesperado em get_events: {e}", exc_info=True)
+            return []
 
+    async def create_event(self, summary: str, start_time: str, end_time: str, attendees: List[str]) -> Optional[Dict[str, Any]]:
+        """Cria um novo evento (assíncrono)."""
+        logger.info(f"[GCalendarClient] Criando evento: '{summary}'")
+        
+        event_body = {
+            'summary': summary,
+            'start': {'dateTime': start_time, 'timeZone': 'America/Sao_Paulo'},
+            'end': {'dateTime': end_time, 'timeZone': 'America/Sao_Paulo'},
+            'attendees': [{'email': email} for email in attendees],
+        }
 
-if __name__ == "__main__":
-  f = GCalendarClient()
-  f.main()
+        try:
+            created_event = await self._run_blocking_io(
+                self._service.events().insert(
+                    calendarId="primary",
+                    body=event_body
+                ).execute
+            )
+            logger.info(f"[GCalendarClient] Evento criado com sucesso. ID: {created_event.get('id')}")
+            return created_event
+        except HttpError as error:
+            logger.error(f"[GCalendarClient] Erro ao criar evento: {error}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"[GCalendarClient] Erro inesperado em create_event: {e}", exc_info=True)
+            return None
