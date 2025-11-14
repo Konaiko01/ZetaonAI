@@ -14,7 +14,7 @@ class MessageProcessController:
                  group_auth_service: GroupAuthorizationService):
         self.media_service = media_service
         self.queue_service = message_service
-        self.group_auth = group_auth_service # (Recebe o serviço 'async' corrigido)
+        self.group_auth = group_auth_service
         logger.info("MessageProcessController (async) inicializado com sucesso.")
 
 #--------------------------------------------------------------------------------------------------------------------#
@@ -23,34 +23,33 @@ class MessageProcessController:
         logger.debug(f"[MessageProcessController]Controlador recebeu dados: {data}")
         try:
             processed_data = await self.media_service.treated_message(data)
-            
-            auth_id = processed_data.get('GroupId')
-            phone_number = processed_data.get('Numero')
+            phone_jid = processed_data.get('Numero')     
+            auth_id = processed_data.get('AuthId')        
+            group_id = processed_data.get('GroupId')
             message_content = processed_data.get('Mensagem')
-
-            if not phone_number or not message_content:
+            if not phone_jid or not message_content or not auth_id:
                 logger.info(f"[MessageProcessController]Mensagem ignorada. Motivo: {processed_data.get('message', 'Formato inválido')}")
                 return ({"status": "received_ignored", "detail": processed_data.get('message')}, 200)
-            
-            authorized_group_ids = ["120363424101109821@g.us"]
-            
-            is_authorized = await self.group_auth.is_user_in_any_authorized_group(
-                 auth_id,
-                 authorized_group_ids
-            )
-            
+            authorized_group_ids = ["120363424101109821@g.us"] 
+            is_authorized = False
+            if group_id:
+                if group_id in authorized_group_ids:
+                    is_authorized = await self.group_auth.authorize_user(auth_id, group_id)
+            else:
+                is_authorized = await self.group_auth.is_user_in_any_authorized_group(
+                     auth_id,
+                     authorized_group_ids
+                )
             if not is_authorized:
-                logger.warning(f"Usuário {phone_number} não está autorizado")
-                return ({"status": "unauthorized", "message": "Usuário não autorizado para usar o agent"}, 403) # (Status 403 é melhor)
-            
+                logger.warning(f"Usuário {auth_id} não está autorizado")
+                return ({"status": "unauthorized", "message": "Usuário não autorizado para usar o agent"}, 403)
+            phone_number_clean = phone_jid.split('@')[0] 
             await self.queue_service.enqueue_message(
-                phone_number=phone_number, 
-                message_data=processed_data 
+                phone=phone_number_clean, 
+                message=message_content
             )
-
-            logger.info(f"[MessageProcessController]Mensagem de {phone_number} adicionada com sucesso à fila.")
-            
-            return ({"status": "received_queued", "detail": f"Mensagem de {phone_number} enfileirada."}, 200)
+            logger.info(f"[MessageProcessController]Mensagem de {phone_jid} adicionada com sucesso à fila.")
+            return ({"status": "received_queued", "detail": f"Mensagem de {phone_jid} enfileirada."}, 200)
 
         except Exception as e:
             logger.error(f"[MessageProcessController]Erro crítico no controlador ao processar mensagem: {e}", exc_info=True)
