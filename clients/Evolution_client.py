@@ -14,6 +14,7 @@ class EvolutionClient(IChat):
     def __init__(self):
         self._EVOLUTION_URL = os.getenv("EVOLUTION_URL") or os.getenv("evolution_url")
         self._EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY") or os.getenv("evolution_token")
+        self._EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE", "default")
         self._EVOLUTION_SEND_PATH = os.getenv("EVOLUTION_SEND_PATH", "/messages")
 
         if not self._EVOLUTION_URL or not self._EVOLUTION_API_KEY:
@@ -106,16 +107,17 @@ class EvolutionClient(IChat):
             logger.error(f"[EvolutionClient] Erro inesperado: {e}")
             return False
         
-    # --- MUDANÇA: 'async def' ---
-    async def get_group_participants(self, group_jid: str, instance: str = "default") -> list[dict]:
+    async def get_group_participants(self, group_jid: str) -> list[dict]: # Removido o argumento 'instance'
         """Buscar lista de participantes de um grupo (Assíncrono)."""
         try:
-            logger.info(f"Buscando participantes do grupo {group_jid}")
+            logger.info(f"Buscando participantes do grupo {group_jid} na instância {self._EVOLUTION_INSTANCE}")
             
-            url = f"/group/participants/{instance}"
+            # --- INÍCIO DA CORREÇÃO ---
+            url = f"/group/participants/{self._EVOLUTION_INSTANCE}" # <-- Usa a instância do .env
+            # --- FIM DA CORREÇÃO ---
+            
             params = {'groupJid': group_jid}
 
-            # --- MUDANÇA: 'await' e 'httpx' ---
             response = await self.http_client.get(url, params=params)
             response.raise_for_status()
 
@@ -129,19 +131,20 @@ class EvolutionClient(IChat):
             logger.error(f'[GroupClient] Erro ao buscar participantes: {e}')
             return []
         except Exception as e:
-            logger.error(f"[GroupClient] Erro inesperado: {e}")
+            logger.error(f"[GroupClient] Erro inesperado: {e}", exc_info=True)
             return []
 
-    # --- MUDANÇA: 'async def' ---
-    async def get_all_groups(self, instance: str = "default") -> list[dict]:
+    async def get_all_groups(self) -> list[dict]: # Removido o argumento 'instance'
         """Buscar lista de todos os grupos (Assíncrono)."""
         try:
-            logger.info("Buscando todos os grupos")
+            logger.info(f"Buscando todos os grupos da instância {self._EVOLUTION_INSTANCE}")
 
-            url = f"/group/fetchAllGroups/{instance}"
+            # --- INÍCIO DA CORREÇÃO ---
+            url = f"/group/fetchAllGroups/{self._EVOLUTION_INSTANCE}" # <-- Usa a instância do .env
+            # --- FIM DA CORREÇÃO ---
+            
             params = {'getParticipants': 'true'}
 
-            # --- MUDANÇA: 'await' e 'httpx' ---
             response = await self.http_client.get(url, params=params)
             response.raise_for_status()
 
@@ -153,5 +156,5 @@ class EvolutionClient(IChat):
             logger.error(f'[GroupClient] Erro ao buscar grupos: {e}')
             return []
         except Exception as e:
-            logger.error(f"[GroupClient] Erro inesperado: {e}")
+            logger.error(f"[GroupClient] Erro inesperado: {e}", exc_info=True)
             return []

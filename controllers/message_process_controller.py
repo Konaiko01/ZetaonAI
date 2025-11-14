@@ -24,6 +24,7 @@ class MessageProcessController:
         try:
             processed_data = await self.media_service.treated_message(data)
             
+            auth_id = processed_data.get('GroupId')
             phone_number = processed_data.get('Numero')
             message_content = processed_data.get('Mensagem')
 
@@ -31,20 +32,18 @@ class MessageProcessController:
                 logger.info(f"[MessageProcessController]Mensagem ignorada. Motivo: {processed_data.get('message', 'Formato inválido')}")
                 return ({"status": "received_ignored", "detail": processed_data.get('message')}, 200)
             
-            authorized_group_ids = ["700f6f19-b56b-44b5-9d27-517ab5b5379d", "120363295648424211@g.us"]
+            authorized_group_ids = ["120363424101109821@g.us"]
             
-            # --- MUDANÇA: 'await' ---
             is_authorized = await self.group_auth.is_user_in_any_authorized_group(
-                 phone_number,
+                 auth_id,
                  authorized_group_ids
             )
-            # --- FIM DA MUDANÇA ---
             
-            # if not is_authorized:
-            #     logger.warning(f"Usuário {phone_number} não está autorizado")
-            #     return ({"status": "unauthorized", "message": "Usuário não autorizado para usar o agent"}, 403) # (Status 403 é melhor)
+            if not is_authorized:
+                logger.warning(f"Usuário {phone_number} não está autorizado")
+                return ({"status": "unauthorized", "message": "Usuário não autorizado para usar o agent"}, 403) # (Status 403 é melhor)
             
-            await self.queue_service.add_message(
+            await self.queue_service.enqueue_message(
                 phone_number=phone_number, 
                 message_data=processed_data 
             )
