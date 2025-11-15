@@ -91,20 +91,25 @@ class GroupMembersRepository:
     async def is_member_in_group(self, group_id: str, auth_id: str) -> bool:
         try:
             members = await self.get_group_members(group_id)
+
             if not members:
-                logger.debug(f"[GroupMembersRepository]is_member_in_group: Lista de membros vazia para {group_id}")
+                logger.debug(f"is_member_in_group: Lista de membros vazia para {group_id}")
                 return False
+
             for member in members:
-                member_id = member.get("id", "")
-                if member_id == auth_id: 
-                    logger.debug(f"[GroupMembersRepository]ID {auth_id} é membro do grupo {group_id}")
+                member_jid = member.get("id", "")  
+                member_lid = member.get("lid", "") 
+                
+                if auth_id in [member_jid, member_lid]:
+                    logger.debug(f"ID {auth_id} é membro (JID/LID) do grupo {group_id}")
                     return True
-            logger.debug(f"[GroupMembersRepository]ID {auth_id} NÃO é membro do grupo {group_id}")
-            return False
-        except Exception as e:
-            logger.error(f"[GroupMembersRepository]Erro ao verificar membro: {e}")
+
+            logger.debug(f"ID {auth_id} NÃO é membro (JID/LID) do grupo {group_id}")
             return False
 
+        except Exception as e:
+            logger.error(f"Erro ao verificar membro: {e}")
+            return False
 
 #--------------------------------------------------------------------------------------------------------------------#
 
