@@ -1,4 +1,3 @@
-from interfaces.clients.calendar_inteface import ICalendar
 from container.repositories import RepositoryContainer
 from interfaces.clients.ia_interface import IAI
 from container.clients import ClientContainer
@@ -8,6 +7,7 @@ from agents.agent_base import BaseAgent
 from utils.logger import logger
 import json
 
+from interfaces.clients.calendar_inteface import ICalendar 
 
 #--------------------------------------------------------------------------------------------------------------------#
 class AgentAgendamento(BaseAgent):
@@ -23,7 +23,7 @@ class AgentAgendamento(BaseAgent):
     @property
     def id(self) -> str:
         return "agent_agendamento"
-
+    
 #--------------------------------------------------------------------------------------------------------------------#
 
     @property
@@ -43,15 +43,47 @@ class AgentAgendamento(BaseAgent):
         return """
         # Identidade: Agente de Agendamento
         - **Função**: Gerenciador de Agenda (Google Calendar).
-        - **Expertise**: Marcar, consultar e gerenciar eventos e reuniões.
-        - **Restrições**: Você SÓ pode realizar ações relacionadas à agenda.
+        - **Expertise**: Marcar, consultar, REMARCAR (update) e DELETAR eventos.
+
+        # Contexto Atual
+        - A data e hora atuais (Fuso São Paulo) são: {CURRENT_DATETIME}
+        - Use esta data como referência para pedidos como "hoje", "amanhã" ou "próxima semana".
         
+        # Regra de Segurança (Guardrail)
+        - **IMPORTANTE**: Você NUNCA deve mostrar IDs de eventos ao usuário. IDs são apenas para uso interno das ferramentas.
+        - **LIMITAÇÃO**: Você NÃO PODE convidar participantes (attendees) por e-mail.
+        - Se o usuário pedir para convidar alguém, informe que o evento será criado na agenda principal, mas que o usuário precisará convidar os participantes manualmente.
+
         # Tarefa
-        - Você deve usar as ferramentas `get_calendar_events` e `Calendar` para atender às solicitações do usuário.
-        - Sempre confirme com o usuário ANTES de criar um evento, repetindo os detalhes (o quê, quando, quem).
-        - Se os detalhes estiverem faltando (ex: falta a data final, ou o título), peça ao usuário as informações necessárias.
-        - Ao consultar a agenda, forneça um resumo claro dos eventos encontrados.
-        - Converta pedidos em linguagem natural (ex: "amanhã às 10h") para o formato ISO (ex: "2025-11-14T10:00:00") antes de chamar a ferramenta. Assuma o fuso horário local (-03:00).
+        - Converta datas em linguagem natural (ex: "amanhã") para o formato ISO (YYYY-MM-DDTHH:MM:SS-03:00) usando a data atual como base.
+        - Assuma o fuso horário de São Paulo (UTC-03:00).
+        
+        # Fluxo de Criação (create_calendar_event):
+        1. Peça ao usuário: Título, Data/Hora de Início e Data/Hora de Fim. (NÃO peça e-mails).
+        2. Confirme os detalhes com o usuário.
+        3. Após a confirmação, chame a ferramenta `Calendar`. 
+        4. Informe ao usuário que o evento foi criado.
+
+        # Fluxo de Consulta (get_calendar_events):
+        1. Use para verificar a agenda ou encontrar eventos.
+        2. Se o usuário pedir para "remarcar" ou "deletar" um evento, use `get_calendar_events` PRIMEIRO para listar os eventos do dia e encontrar o ID (para seu uso interno).
+        
+        # Fluxo de Remarcar (update_calendar_event):
+        1. (NUNCA use 'create_calendar_event' para remarcar!)
+        2. Use `get_calendar_events` para encontrar o ID do evento que o usuário quer alterar.
+        3. Confirme com o usuário (usando TÍTULO e HORA) qual evento será alterado.
+        4. Peça QUAIS campos devem ser alterados (ex: novo título, novo horário de início, novo horário de fim).
+        5. Construa o `update_body` (um JSON) contendo APENAS os campos que mudaram.
+           - Se for o título: `{{"summary": "Novo Título"}}`
+           - Se for o horário: `{{"start": {{"dateTime": "ISO_TIME_START"}}, "end": {{"dateTime": "ISO_TIME_END"}}}}`
+           - Se for ambos: `{{"summary": "Novo Título", "start": ...}}`
+        6. Chame `update_calendar_event` passando o ID e o `update_body`
+
+        # Fluxo de Deleção (delete_calendar_event):
+        1. Pergunte o dia/título do evento a ser deletado.
+        2. Use `get_calendar_events` para listar os eventos do dia (e seus IDs, para seu uso interno).
+        3. Confirme com o usuário (usando TÍTULO e HORA) o evento a ser deletado.
+        4. Após a confirmação, chame `delete_calendar_event` com o ID (que você guardou).
         """
 
 #--------------------------------------------------------------------------------------------------------------------#
@@ -61,6 +93,7 @@ class AgentAgendamento(BaseAgent):
         return tools_definitions
     
 #--------------------------------------------------------------------------------------------------------------------#
+
 
     async def exec(self, context: List[Dict[str, Any]], phone: str) -> List[Dict[str, Any]]:
         logger.info(f"[{self.id}] Executando agente para {phone}.")
@@ -72,9 +105,11 @@ class AgentAgendamento(BaseAgent):
                 tools=self.tools,
             )
             response_message = response_completion.choices[0].message
-            messages.append(self._message_to_dict(response_message))              
+            messages.append(self._message_to_dict(response_message))            
+            
             while response_message.tool_calls:
                 logger.info(f"[{self.id}] Acionando ferramentas: {[tc.function.name for tc in response_message.tool_calls]}")
+                
                 for tool_call in response_message.tool_calls:
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
@@ -85,26 +120,40 @@ class AgentAgendamento(BaseAgent):
                                 start_date=function_args.get("start_date"),
                                 end_date=function_args.get("end_date")
                             )
-                            logger.info(f"[{self.id}] Ferramenta 'get_calendar_events' chamada.")                            
+                            logger.info(f"[{self.id}] Ferramenta 'get_calendar_events' chamada.")
+                        
                         elif function_name == "create_calendar_event":
                             tool_output = await self._calendar_client.create_event(
                                 summary=function_args.get("summary"),
                                 start_time=function_args.get("start_time"),
-                                end_time=function_args.get("end_time"),
-                                attendees=function_args.get("attendees", [])
+                                end_time=function_args.get("end_time")
                             )
-                            logger.info(f"[{self.id}] Ferramenta 'create_calendar_event' chamada.")                            
+                            logger.info(f"[{self.id}] Ferramenta 'create_calendar_event' chamada.")
+                        
+                        elif function_name == "update_calendar_event":
+                            event_id = function_args.get("event_id")
+                            update_body = function_args.get("update_body")
+                            tool_output = await self._calendar_client.update_event(event_id, update_body)
+                            logger.info(f"[{self.id}] Ferramenta 'update_calendar_event' chamada para ID: {event_id}")
+
+                        elif function_name == "delete_calendar_event":
+                            event_id = function_args.get("event_id")
+                            tool_output = await self._calendar_client.delete_event(event_id)
+                            logger.info(f"[{self.id}] Ferramenta 'delete_calendar_event' chamada para ID: {event_id}")
+                            
                         else:
                             tool_output = f"Erro: Ferramenta '{function_name}' desconhecida."
-                            logger.warning(f"[{self.id}] Tentativa de chamar ferramenta desconhecida: {function_name}")                        
+                            logger.warning(f"[{self.id}] Tentativa de chamar ferramenta desconhecida: {function_name}")
+                    
                     except Exception as tool_e:
                         logger.error(f"[{self.id}] Erro ao executar ferramenta '{function_name}': {tool_e}", exc_info=True)
-                        tool_output = f"Erro ao executar a ferramenta {function_name}: {str(tool_e)}"                        
+                        tool_output = f"Erro ao executar a ferramenta {function_name}: {str(tool_e)}"
+                    
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": json.dumps(tool_output),
+                            "content": json.dumps(tool_output, default=str),
                         }
                     )
                 
@@ -139,12 +188,9 @@ class AgentAgendamento(BaseAgent):
         calendar_client = client_container.get_client("ICalendar") 
         if not calendar_client:
             raise ValueError("[AgentAgendamento] Cliente ICalendar não encontrado no container.")
-            
         return cls(ai_client=ai_client, calendar_client=calendar_client)
     
 #--------------------------------------------------------------------------------------------------------------------#
-
-
 tools_definitions = [
     {
         "type": "function",
@@ -156,11 +202,11 @@ tools_definitions = [
                 "properties": {
                     "start_date": {
                         "type": "string",
-                        "description": "Data e hora de início no formato ISO (YYYY-MM-DDTHH:MM:SS)",
+                        "description": "Data/hora de início (ISO 8601 com fuso, ex: 2025-11-15T00:00:00-03:00)",
                     },
                     "end_date": {
                         "type": "string",
-                        "description": "Data e hora de fim no formato ISO (YYYY-MM-DDTHH:MM:SS)",
+                        "description": "Data/hora de fim (ISO 8601 com fuso, ex: 2025-11-15T23:59:59-03:00)",
                     },
                 },
                 "required": ["start_date", "end_date"],
@@ -171,27 +217,60 @@ tools_definitions = [
         "type": "function",
         "function": {
             "name": "create_calendar_event",
-            "description": "Cria um novo evento na agenda do Google Calendar.",
+            "description": "Cria um novo evento na agenda.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "summary": {"type": "string", "description": "O título do evento."},
                     "start_time": {
                         "type": "string",
-                        "description": "Data e hora de início no formato ISO (YYYY-MM-DDTHH:MM:SS)",
+                        "description": "Data/hora de início (ISO 8601 com fuso, ex: 2025-11-16T10:00:00-03:00)",
                     },
                     "end_time": {
                         "type": "string",
-                        "description": "Data e hora de fim no formato ISO (YYYY-MM-DDTHH:MM:SS)",
-                    },
-                    "attendees": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Lista de e-mails dos participantes.",
+                        "description": "Data/hora de fim (ISO 8601 com fuso, ex: 2025-11-16T11:00:00-03:00)",
                     },
                 },
                 "required": ["summary", "start_time", "end_time"],
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_calendar_event",
+            "description": "Atualiza (remarca ou renomeia) um evento existente usando seu ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "string", 
+                        "description": "O ID do evento a ser modificado (obtido via 'get_calendar_events')."
+                    },
+                    "update_body": {
+                        "type": "object",
+                        "description": "Um objeto JSON contendo APENAS os campos a serem alterados (ex: 'summary', 'start', 'end')."
+                    }
+                },
+                "required": ["event_id", "update_body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_calendar_event",
+            "description": "Deleta um evento existente usando seu ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "string", 
+                        "description": "O ID do evento a ser deletado (obtido via 'get_calendar_events')."
+                    }
+                },
+                "required": ["event_id"],
+            },
+        },
+    }
 ]

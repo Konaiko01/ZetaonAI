@@ -1,8 +1,12 @@
 from openai.types.chat import ChatCompletion, ChatCompletionMessage
 from interfaces.agent.agent_interface import IAgent
 from utils.logger import logger
+from utils.date import ZoneInfo
 from abc import abstractmethod
 from typing import Any
+from datetime import datetime, timezone
+
+
 
 #--------------------------------------------------------------------------------------------------------------------#
 class BaseAgent(IAgent):
@@ -45,7 +49,18 @@ class BaseAgent(IAgent):
 
     def _insert_system_input(self, input_list: list) -> list:
         filtered_list = [msg for msg in input_list if msg.get("role") != "system"]
-        system_prompt = {"role": "system", "content": self.instructions}
+        try:
+            sao_paulo_tz = ZoneInfo("America/Sao_Paulo")
+            now = datetime.now(sao_paulo_tz)
+            current_time_str = now.isoformat()
+        except Exception as e:
+            logger.warning(f"Falha ao obter fuso 'America/Sao_Paulo' ({e}). Usando UTC.")
+            now = datetime.now(timezone.utc)
+            current_time_str = now.isoformat() + " (UTC)"
+        instructions_content = self.instructions.format(
+            CURRENT_DATETIME=current_time_str
+        )
+        system_prompt = {"role": "system", "content": instructions_content}
         filtered_list.insert(0, system_prompt)
         return filtered_list
 
@@ -76,3 +91,4 @@ class BaseAgent(IAgent):
             del msg_dict["content"]
             
         return msg_dict
+
