@@ -4,6 +4,7 @@ from clients.openai_client import OpenIAClient
 from clients.mongo_client import MongoDBClient
 from clients.redis_client import RedisClient
 from utils.logger import logger
+from clients.websearch_client import WebSearchClient
 
 #--------------------------------------------------------------------------------------------------------------------#
 class ClientContainer:
@@ -22,12 +23,13 @@ class ClientContainer:
         self.register_client("MongoDBClient", MongoDBClient()) 
         self.register_client("RedisClient", RedisClient()) 
         
-        # Clientes Mock/Futuros
-        self.register_client("IWebSearch", None) 
-        self.register_client("IProspect", None)
-        
-        # Apenas registra a "interface" como None por enquanto.
-        # O main.py irá preenchê-la.
+        try:
+            self.register_client("IWebSearch", WebSearchClient())
+        except ValueError as e:
+            # Falha se a SERPER_API_KEY não estiver no .env
+            logger.warning(f"[ClientContainer] {e}")
+            logger.warning("[ClientContainer] Cliente IWebSearch não foi carregado (None).")
+            self.register_client("IWebSearch", None)
         self.register_client("ICalendar", None)
 
 #--------------------------------------------------------------------------------------------------------------------#
