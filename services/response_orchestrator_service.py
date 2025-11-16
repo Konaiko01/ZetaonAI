@@ -133,7 +133,6 @@ class ResponseOrchestratorService(IOrchestrator):
             input_messages=routing_context,
             tools=self.tools,
         )
-        logger.info(f"[Orchestrator] Resposta da IA: {(response_completion)}")
         response_message = response_completion.choices[0].message 
         final_history = []
         if response_message.tool_calls:

@@ -23,16 +23,15 @@ class MongoDBClient(IDB):
 
 #--------------------------------------------------------------------------------------------------------------------#
 
-    async def find_one(self, collection_key: str, filter: dict[str, Any]) -> Optional[dict[str, Any]]:
-        """Busca um documento (ASSÍNCRONO)."""
+    async def find_one(self, collection_key: str, filter: dict[str, Any], projection: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
+
         try:
             collect = self.database[collection_key]
-            document = await collect.find_one(filter)
+            document = await collect.find_one(filter, projection=projection) 
             return document
         except Exception as e:
-            logger.error(f"[MongoDBClient] Erro ao buscar (async) em '{collection_key}': {e}", exc_info=True)
+            logger.error(f"[MongoDBClient] Erro ao buscar em '{collection_key}': {e}", exc_info=True)
             return None
-
 #--------------------------------------------------------------------------------------------------------------------#
 
     async def insert_one(self, collection_key: str, data: dict[str, Any]):

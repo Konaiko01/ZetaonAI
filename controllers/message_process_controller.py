@@ -23,15 +23,17 @@ class MessageProcessController:
         logger.debug(f"[MessageProcessController]Controlador recebeu dados: {data}")
         try:
             processed_data = await self.media_service.treated_message(data)
-            phone_jid = processed_data.get('Numero')     
-            auth_id = processed_data.get('AuthId')        
+            phone_jid = processed_data.get('Numero')       
+            auth_id = processed_data.get('AuthId')         
             group_id = processed_data.get('GroupId')
             message_content = processed_data.get('Mensagem')
+
             if not phone_jid or not message_content or not auth_id:
                 logger.info(f"[MessageProcessController]Mensagem ignorada. Motivo: {processed_data.get('message', 'Formato inválido')}")
                 return ({"status": "received_ignored", "detail": processed_data.get('message')}, 200)
-            authorized_group_ids = ["120363424101109821@g.us"] 
+            authorized_group_ids = ["120363424101109821@g.us","120363401865067709@g.us"]
             is_authorized = False
+
             if group_id:
                 if group_id in authorized_group_ids:
                     is_authorized = await self.group_auth.authorize_user(auth_id, group_id)
@@ -40,15 +42,19 @@ class MessageProcessController:
                      auth_id,
                      authorized_group_ids
                 )
+            
             if not is_authorized:
-                logger.warning(f"Usuário {auth_id} não está autorizado")
+                logger.warning(f"Usuário {auth_id} (Telefone: {phone_jid}) não está autorizado")
                 return ({"status": "unauthorized", "message": "Usuário não autorizado para usar o agent"}, 403)
             phone_number_clean = phone_jid.split('@')[0] 
+            
             await self.queue_service.enqueue_message(
-                phone=phone_number_clean, 
+                phone=phone_number_clean,
                 message=message_content
             )
-            logger.info(f"[MessageProcessController]Mensagem de {phone_jid} adicionada com sucesso à fila.")
+
+            logger.info(f"[MessageProcessController]Mensagem de {phone_jid} (Auth: {auth_id}) adicionada com sucesso à fila.")
+            
             return ({"status": "received_queued", "detail": f"Mensagem de {phone_jid} enfileirada."}, 200)
 
         except Exception as e:

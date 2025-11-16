@@ -2,6 +2,8 @@ from services.response_orchestrator_service import ResponseOrchestratorService
 from controllers.message_process_controller import MessageProcessController
 from services.group_autorization_service import GroupAuthorizationService 
 from services.message_send_service import MessageSendService
+from services.media_processor_service import MediaProcessorService
+from services.crypto.wpp_decoder import Decoder
 from clients.calendar_client import GCalendarClient
 from services.media_processor_service import MediaProcessorService
 from services.message_queue_service import MessageQueueService
@@ -66,7 +68,11 @@ class AppContainer:
             ai_client=self.client_container.get_client("IAI"),
             message_generation_service=self.message_gen_service
         )
-        self.media_service = MediaProcessorService()
+        decoder_instance = Decoder() 
+        self.media_service = MediaProcessorService(
+            ai_client=self.client_container.get_client("IAI"),
+            decoder=decoder_instance
+        )
 
         self.queue_service = MessageQueueService(
             orchestrator=self.orchestrator,
@@ -97,6 +103,7 @@ container = AppContainer()
 async def handle_webhook(request: Request):
     try:
         data = await request.json()
+        logger.info(data)
     except Exception as e:
         logger.error(f"[Main]Erro ao decodificar JSON do webhook: {e}")
         return JSONResponse(content={"status": "error", "detail": "Invalid JSON body"}, status_code=400)

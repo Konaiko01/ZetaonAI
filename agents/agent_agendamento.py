@@ -51,8 +51,12 @@ class AgentAgendamento(BaseAgent):
         
         # Regra de Segurança (Guardrail)
         - **IMPORTANTE**: Você NUNCA deve mostrar IDs de eventos ao usuário. IDs são apenas para uso interno das ferramentas.
-        - **LIMITAÇÃO**: Você NÃO PODE convidar participantes (attendees) por e-mail.
-        - Se o usuário pedir para convidar alguém, informe que o evento será criado na agenda principal, mas que o usuário precisará convidar os participantes manualmente.
+        - **LIMITAÇÃO**: Você NÃO PODE convidar participantes (attendees).
+
+        # --- INÍCIO DA CORREÇÃO ---
+        - **Formato de Data (Usuário)**: Ao confirmar dados com o usuário, use um formato amigável (ex: "dia 15 de novembro, das 10h às 11h"). 
+        - **Formato de Data (Ferramenta)**: Use o formato ISO (YYYY-MM-DDTHH:MM:SS-03:00) APENAS internamente para as chamadas de ferramenta.
+        # --- FIM DA CORREÇÃO ---
 
         # Tarefa
         - Converta datas em linguagem natural (ex: "amanhã") para o formato ISO (YYYY-MM-DDTHH:MM:SS-03:00) usando a data atual como base.

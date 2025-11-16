@@ -15,15 +15,12 @@ class MessageSendService:
         if not message or not phone:
             logger.warning("[MessageSendService] Tentativa de enviar mensagem vazia ou sem destinatário.")
             return
-        phone_jid = f"{phone}@s.whatsapp.net"
-
-
         try:
-            success = await self.chat_client.send_message(phone_jid, message)
+            success = await self.chat_client.send_message(phone, message)
             if success:
-                logger.info(f"[MessageSendService] Mensagem enviada para {phone_jid} com sucesso.")
+                logger.info(f"[MessageSendService] Mensagem enviada para {phone} com sucesso.")
             else:
-                logger.error(f"[MessageSendService] Falha ao enviar mensagem para {phone_jid} (cliente retornou 'false').")
+                logger.error(f"[MessageSendService] Falha ao enviar mensagem para {phone} (cliente retornou 'false').")
             
         except Exception as e:
-            logger.error(f"Erro ao enviar mensagem para {phone_jid}: {e}", exc_info=True)
+            logger.error(f"Erro ao enviar mensagem para {phone}: {e}", exc_info=True)

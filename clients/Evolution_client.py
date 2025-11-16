@@ -80,9 +80,7 @@ class EvolutionClient(IChat):
             url = self._EVOLUTION_SEND_PATH 
             payload = {
                 "number": phone,
-                "textMessage": {
-                    "text": output
-                }
+                "text": output
             }
             response = await self.http_client.post(url, json=payload)
             response.raise_for_status()
