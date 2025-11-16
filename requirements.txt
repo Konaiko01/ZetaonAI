@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+gunicorn
+httpx
+openai-whisper
+openai
+pycryptodome
+google-api-python-client
+google-auth-oauthlib
+motor
+redis
+python-dotenv

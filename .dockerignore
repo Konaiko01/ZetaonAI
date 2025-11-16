@@ -1,0 +1,15 @@
+# Ambiente virtual
+amabiente/
+__pycache__/
+*.pyc
+
+# Segredos e logs
+.env
+*.log
+app_debug.log
+
+# Arquivos de teste e Git
+tests/
+.git/
+.vscode/
+.gitignore
