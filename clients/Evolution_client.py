@@ -138,3 +138,5 @@ class EvolutionClient(IChat):
         except Exception as e:
             logger.error(f"[EvolutionClient] Erro inesperado: {e}", exc_info=True)
             return []
+        
+#--------------------------------------------------------------------------------------------------------------------#
