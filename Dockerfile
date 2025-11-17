@@ -25,4 +25,4 @@ ENV PYTHONPATH /app
 EXPOSE 8000
 
 # 9. O comando para rodar sua aplicação
-CMD ["uvicorn", "--bind", "0.0.0.0:8000", "--pythonpath", "/app", "main:app"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
