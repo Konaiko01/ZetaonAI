@@ -21,4 +21,4 @@ EXPOSE 8000
 
 # 8. O comando para rodar sua aplicação em produção
 # (O mesmo comando gunicorn que falhou no Windows funcionará aqui, pois Docker é Linux)
-CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "main:app"]
