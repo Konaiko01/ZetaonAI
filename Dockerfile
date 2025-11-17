@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # 2. Defina o diretório de trabalho dentro do contêiner
 WORKDIR /app
 
-# 3. ATUALIZE o Linux e INSTALE O FFMPEG (A correção crucial)
+# 3. ATUALIZE o Linux e INSTALE O FFMPEG
 RUN apt-get update && apt-get install -y ffmpeg
 
 # 4. Copie o arquivo de dependências
@@ -13,12 +13,16 @@ COPY requirements.txt .
 # 5. Instale as dependências do Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 6. Copie TODO o seu código (main.py, agents/, clients/, etc.)
+# 6. Copie TODO o seu código
 COPY . .
 
-# 7. Exponha a porta que o Uvicorn/Gunicorn usará
+# --- INÍCIO DA CORREÇÃO ---
+# 7. Adicione o diretório /app ao PYTHONPATH
+ENV PYTHONPATH /app
+# --- FIM DA CORREÇÃO ---
+
+# 8. Exponha a porta
 EXPOSE 8000
 
-# 8. O comando para rodar sua aplicação em produção
-# (O mesmo comando gunicorn que falhou no Windows funcionará aqui, pois Docker é Linux)
+# 9. O comando para rodar sua aplicação
 CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "main:app"]
