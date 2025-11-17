@@ -25,4 +25,4 @@ ENV PYTHONPATH /app
 EXPOSE 8000
 
 # 9. O comando para rodar sua aplicação
-CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "main:app"]
+CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--pythonpath", "/app", "main:app"]
