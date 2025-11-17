@@ -16,6 +16,10 @@ from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 import uvicorn
 import os
+import sys
+import os
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, APP_ROOT)
 
 #--------------------------------------------------------------------------------------------------------------------#
 
